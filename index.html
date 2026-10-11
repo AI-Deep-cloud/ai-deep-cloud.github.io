@@ -424,7 +424,8 @@
       const twoWeeks = 14 * 24 * 60 * 60 * 1000;
       for (const game of games) {
         const card = el("a", "game box");
-        card.href = game.file;
+        // the extra "?v=..." makes the browser load the newest version, not an old saved copy
+        card.href = game.file + (game.file.indexOf("?") === -1 ? "?" : "&") + "v=" + Date.now();
         if (game.date && Date.now() - new Date(game.date).getTime() < twoWeeks) {
           card.appendChild(el("span", "new", "NEW!"));
         }
