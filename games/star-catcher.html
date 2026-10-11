@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- NEW: tells phones to show the page at its real size instead of zoomed out -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Star Catcher</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    canvas {
+      background: #1d2340;
+      border: 3px solid #fff;
+      max-width: 100%;
+      max-height: 95vh;
+      box-sizing: border-box;    /* NEW: count the border inside the size, so it fits a phone */
+      touch-action: none;       /* NEW: dragging a finger moves the paddle, not the page */
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    /* link back to the arcade's home page */
+    .back {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      padding: 6px 12px;
+      background: #ffd75e;
+      color: #1d2340;
+      font: bold 15px sans-serif;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <a class="back" href="../index.html">&larr; Arcade</a>
+  <canvas id="game" width="480" height="600"></canvas>
+
+  <script>
+    // ---------------------------------------------------------------
+    // 1. SETUP
+    // ---------------------------------------------------------------
+    const canvas = document.getElementById("game");
+    const pen = canvas.getContext("2d");
+
+    // ---------------------------------------------------------------
+    // 2. STATE
+    // ---------------------------------------------------------------
+
+    // NEW: two paddles instead of one. Change the colors to anything you like!
+    const players = [
+      {
+        name: "Player 1",
+        color: "black",
+        leftKey: "a",
+        rightKey: "d",
+        x: 190, y: 550, width: 100, height: 20,
+        speed: 300,
+        score: 0
+      },
+      {
+        name: "Player 2",
+        color: "pink",
+        leftKey: "ArrowLeft",
+        rightKey: "ArrowRight",
+        x: 0, y: 550, width: 100, height: 20,
+        speed: 300,
+        score: 0
+      }
+    ];
+    let playerCount = 1;       // NEW: 1 or 2 players
+
+    let stars = [];
+    let sparkles = [];         // NEW: little bits that fly out when you catch a star
+    let lives = 3;
+    let level = 1;
+    let gameState = "start";   // "start", "playing", "paused" or "gameover"
+    const starPicture = "⭐";
+    let spawnTimer = 0;
+    let levelUpTimer = 0;      // NEW: how long to show "LEVEL UP!"
+    let shakeTime = 0;         // NEW: how long the screen shakes after a miss
+
+    // NEW: the best score, saved in the browser so it's still there tomorrow
+    let best = 0;
+    let newBest = false;
+    try { best = Number(localStorage.getItem("starCatcherBest")) || 0; } catch (e) {}
+
+    function saveBest() {
+      try { localStorage.setItem("starCatcherBest", best); } catch (e) {}
+    }
+
+    // only the players who are in this game
+    function activePlayers() {
+      return players.slice(0, playerCount);
+    }
+
+    // everyone's points added together
+    function teamScore() {
+      let total = 0;
+      for (const p of activePlayers()) total += p.score;
+      return total;
+    }
+
+    function startGame(count) {
+      playerCount = count;
+      fingers = {};
+      stars = [];
+      sparkles = [];
+      lives = 3;
+      level = 1;
+      spawnTimer = 0;
+      levelUpTimer = 0;
+      shakeTime = 0;
+      newBest = false;
+      for (const p of players) p.score = 0;
+
+      if (playerCount === 1) {
+        players[0].x = (canvas.width - players[0].width) / 2;
+      } else {
+        players[0].x = canvas.width * 0.25 - players[0].width / 2;
+        players[1].x = canvas.width * 0.75 - players[1].width / 2;
+      }
+      gameState = "playing";
+    }
+
+    function endGame() {
+      gameState = "gameover";
+      sounds.gameOver();
+      if (teamScore() > best) {
+        best = teamScore();
+        newBest = true;
+        saveBest();
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // NEW: SOUND. No sound files needed: the browser makes the beeps itself.
+    // ---------------------------------------------------------------
+    let audio = null;          // the browser's sound engine
+    let soundOn = true;
+
+    // browsers only allow sound after you press a key or click, so we start it then
+    function startAudio() {
+      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === "suspended") audio.resume();
+    }
+
+    // play one beep: pitch (higher number = higher note), length in seconds,
+    // wave shape ("square", "triangle", "sawtooth", "sine") and a delay
+    function beep(pitch, length, shape, delay) {
+      if (!audio || !soundOn) return;
+      const start = audio.currentTime + (delay || 0);
+      const tone = audio.createOscillator();
+      const volume = audio.createGain();
+      tone.type = shape || "square";
+      tone.frequency.setValueAtTime(pitch, start);
+      volume.gain.setValueAtTime(0.12, start);
+      volume.gain.exponentialRampToValueAtTime(0.001, start + length);   // fade out
+      tone.connect(volume);
+      volume.connect(audio.destination);
+      tone.start(start);
+      tone.stop(start + length);
+    }
+
+    const sounds = {
+      caught:   function () { beep(440, 0.08); beep(1320, 0.1, "square", 0.06); },
+      missed:   function () { beep(140, 0.3, "sawtooth"); },
+      levelUp:  function () { beep(523, 0.12, "triangle"); beep(659, 0.12, "triangle", 0.1); beep(784, 0.25, "triangle", 0.2); },
+      gameOver: function () { beep(392, 0.25, "triangle"); beep(330, 0.25, "triangle", 0.25); beep(262, 0.6, "triangle", 0.5); }
+    };
+
+    // ---------------------------------------------------------------
+    // 3. INPUT
+    // ---------------------------------------------------------------
+    const keys = {};
+
+    document.addEventListener("keydown", function (event) {
+      keys[event.key] = true;
+      if (event.key.startsWith("Arrow") || event.key === " ") event.preventDefault();
+      startAudio();
+
+      // on the start or game over screen: 1 or 2 picks the players, Space repeats
+      if (gameState === "start" || gameState === "gameover") {
+        if (event.key === "1") startGame(1);
+        if (event.key === "2") startGame(2);
+        if (event.key === " ") startGame(playerCount);
+      }
+
+      // NEW: P pauses, M turns the sound on and off
+      const letter = event.key.toLowerCase();
+      if (letter === "p") {
+        if (gameState === "playing") gameState = "paused";
+        else if (gameState === "paused") gameState = "playing";
+      }
+      if (letter === "m") soundOn = !soundOn;
+    });
+
+    document.addEventListener("keyup", function (event) {
+      keys[event.key] = false;
+    });
+
+    // ---------------------------------------------------------------
+    // NEW: TOUCH and MOUSE. Put a finger down and drag: the closest paddle follows it.
+    // ---------------------------------------------------------------
+    const touchScreen = window.matchMedia("(pointer: coarse)").matches;   // phone or tablet?
+    let fingers = {};          // every finger on the screen, and which paddle it's holding
+
+    // the page can shrink the canvas to fit a phone, so turn screen spots into game spots
+    function gameSpot(event) {
+      const box = canvas.getBoundingClientRect();
+      return {
+        x: (event.clientX - box.left) * canvas.width / box.width,
+        y: (event.clientY - box.top) * canvas.height / box.height
+      };
+    }
+
+    function closestPaddle(x) {
+      let closest = null;
+      for (const p of activePlayers()) {
+        const distance = Math.abs(p.x + p.width / 2 - x);
+        if (closest === null || distance < Math.abs(closest.x + closest.width / 2 - x)) closest = p;
+      }
+      return closest;
+    }
+
+    // buttons on the start and game over screens
+    const buttons = [
+      { label: "1 PLAYER",  players: 1, x: 50,  y: 425, width: 180, height: 56 },
+      { label: "2 PLAYERS", players: 2, x: 250, y: 425, width: 180, height: 56 }
+    ];
+
+    // is the spot inside the box? (the same idea as star-and-paddle collision!)
+    function inside(spot, box) {
+      return spot.x > box.x && spot.x < box.x + box.width &&
+             spot.y > box.y && spot.y < box.y + box.height;
+    }
+
+    canvas.addEventListener("pointerdown", function (event) {
+      startAudio();
+      const spot = gameSpot(event);
+
+      if (gameState === "start" || gameState === "gameover") {
+        for (const b of buttons) {
+          if (inside(spot, b)) startGame(b.players);
+        }
+        return;
+      }
+      if (gameState === "paused") {
+        gameState = "playing";       // tap to keep playing
+        return;
+      }
+
+      fingers[event.pointerId] = { x: spot.x, paddle: closestPaddle(spot.x) };
+      canvas.setPointerCapture(event.pointerId);   // keep following even if the finger slides off
+    });
+
+    canvas.addEventListener("pointermove", function (event) {
+      const finger = fingers[event.pointerId];
+      if (finger) finger.x = gameSpot(event).x;
+    });
+
+    function liftFinger(event) {
+      delete fingers[event.pointerId];
+    }
+    canvas.addEventListener("pointerup", liftFinger);
+    canvas.addEventListener("pointercancel", liftFinger);
+
+    // NEW: pause by itself if you switch apps or tabs
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden && gameState === "playing") gameState = "paused";
+    });
+
+    // ---------------------------------------------------------------
+    // Helper functions
+    // ---------------------------------------------------------------
+    function spawnStar() {
+      const levelBoost = 1 + (level - 1) * 0.25;
+      stars.push({
+        x: 20 + Math.random() * (canvas.width - 40),
+        y: -20,
+        size: 32,
+        speed: (120 + Math.random() * 120) * levelBoost
+      });
+    }
+
+    function touching(star, paddle) {
+      const half = star.size / 2;
+      return star.x + half > paddle.x &&
+             star.x - half < paddle.x + paddle.width &&
+             star.y + half > paddle.y &&
+             star.y - half < paddle.y + paddle.height;
+    }
+
+    // NEW: throw out a handful of sparkles in random directions
+    function burst(x, y) {
+      for (let i = 0; i < 60; i++) {
+        sparkles.push({
+          x: x,
+          y: y,
+          moveX: (Math.random() - 0.5) * 320,
+          moveY: (Math.random() - 0.5) * 320,
+          life: 0.6,                                        // seconds left
+          color: Math.random() < 0.5 ? "#ffd75e" : "white"
+        });
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 4. UPDATE
+    // ---------------------------------------------------------------
+    function update(dt) {
+      // effects keep fading even on the game over screen
+      for (const s of sparkles) {
+        s.x += s.moveX * dt;
+        s.y += s.moveY * dt;
+        s.moveY += 400 * dt;          // gravity pulls them down
+        s.life -= dt;
+      }
+      sparkles = sparkles.filter(function (s) { return s.life > 0; });
+      if (shakeTime > 0) shakeTime -= dt;
+      if (levelUpTimer > 0) levelUpTimer -= dt;
+
+      if (gameState !== "playing") return;
+
+      // NEW: each finger pulls its paddle to where the finger is
+      for (const id in fingers) {
+        const finger = fingers[id];
+        finger.paddle.x = finger.x - finger.paddle.width / 2;
+      }
+
+      // move each paddle with its own keys
+      for (const p of activePlayers()) {
+        let left = keys[p.leftKey];
+        let right = keys[p.rightKey];
+        if (playerCount === 1) {            // playing alone? both sets of keys work
+          left = keys["a"] || keys["ArrowLeft"];
+          right = keys["d"] || keys["ArrowRight"];
+        }
+        if (left) p.x -= p.speed * dt;
+        if (right) p.x += p.speed * dt;
+
+        if (p.x < 0) p.x = 0;
+        if (p.x > canvas.width - p.width) p.x = canvas.width - p.width;
+      }
+
+      // difficulty, plus a fanfare when the level goes up
+      const newLevel = 1 + Math.floor(teamScore() / 10);
+      if (newLevel > level) {
+        sounds.levelUp();
+        levelUpTimer = 1.2;
+      }
+      level = newLevel;
+      const spawnEvery = Math.max(0.25, 0.8 - (level - 1) * 0.1);
+
+      spawnTimer += dt;
+      if (spawnTimer >= spawnEvery) {
+        spawnTimer = 0;
+        spawnStar();
+      }
+
+      // move every star, check which paddle (if any) caught it
+      for (const star of stars) {
+        star.y += star.speed * dt;
+
+        for (const p of activePlayers()) {
+          if (!star.gone && touching(star, p)) {
+            p.score += 1;
+            star.gone = true;
+            burst(star.x, star.y);
+            sounds.caught();
+          }
+        }
+
+        if (!star.gone && star.y > canvas.height + star.size) {
+          lives -= 1;
+          star.gone = true;
+          shakeTime = 0.25;
+          sounds.missed();
+        }
+      }
+
+      stars = stars.filter(function (star) { return !star.gone; });
+
+      if (lives <= 0) {
+        lives = 0;
+        endGame();
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 5. DRAW
+    // ---------------------------------------------------------------
+    // NEW: draw the 1 PLAYER and 2 PLAYERS buttons
+    function drawButtons() {
+      for (const b of buttons) {
+        pen.fillStyle = "#ffd75e";
+        pen.fillRect(b.x, b.y, b.width, b.height);
+        pen.fillStyle = "#1d2340";
+        pen.font = "bold 20px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText(b.label, b.x + b.width / 2, b.y + b.height / 2);
+      }
+    }
+
+    function drawMessage(title, lines, prompt) {
+      pen.fillStyle = "rgba(0, 0, 0, 0.65)";
+      pen.fillRect(0, 0, canvas.width, canvas.height);
+
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "bold 44px sans-serif";
+      pen.fillText(title, canvas.width / 2, canvas.height / 2 - 90);
+
+      pen.font = "19px sans-serif";
+      for (let i = 0; i < lines.length; i++) {
+        pen.fillText(lines[i], canvas.width / 2, canvas.height / 2 - 30 + i * 32);
+      }
+
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 19px sans-serif";
+      pen.fillText(prompt, canvas.width / 2, canvas.height / 2 + 100);
+    }
+
+    // a paddle with a white outline, so even a black paddle shows up
+    function drawPaddle(p) {
+      pen.fillStyle = p.color;
+      pen.fillRect(p.x, p.y, p.width, p.height);
+      pen.strokeStyle = "white";
+      pen.lineWidth = 2;
+      pen.strokeRect(p.x, p.y, p.width, p.height);
+
+      if (playerCount === 2) {        // label so you know whose is whose
+        pen.fillStyle = "white";
+        pen.font = "bold 12px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "bottom";
+        pen.fillText(p.name === "Player 1" ? "P1" : "P2", p.x + p.width / 2, p.y - 4);
+      }
+    }
+
+    function drawScore(p, y) {
+      pen.fillStyle = p.color;
+      pen.fillRect(16, y, 16, 16);
+      pen.strokeStyle = "white";
+      pen.lineWidth = 2;
+      pen.strokeRect(16, y, 16, 16);
+      pen.fillStyle = "white";
+      pen.font = "bold 20px sans-serif";
+      pen.textAlign = "left";
+      pen.textBaseline = "top";
+      pen.fillText(p.name + ": " + p.score, 40, y - 2);
+    }
+
+    function draw() {
+      pen.clearRect(0, 0, canvas.width, canvas.height);
+
+      // --- the game world (this part shakes) ---
+      pen.save();
+      if (shakeTime > 0) {
+        pen.translate((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12);
+      }
+
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      for (const star of stars) {
+        pen.font = star.size + "px sans-serif";
+        pen.fillText(starPicture, star.x, star.y);
+      }
+
+      for (const s of sparkles) {
+        pen.globalAlpha = s.life / 0.6;     // fade out as life runs down
+        pen.fillStyle = s.color;
+        pen.fillRect(s.x - 2, s.y - 2, 4, 4);
+      }
+      pen.globalAlpha = 1;
+
+      for (const p of activePlayers()) drawPaddle(p);
+      pen.restore();
+
+      // --- the scoreboard (this part stays still) ---
+      drawScore(players[0], 16);
+      if (playerCount === 2) drawScore(players[1], 44);
+
+      pen.fillStyle = "white";
+      pen.font = "bold 20px sans-serif";
+      pen.textAlign = "center";
+      pen.textBaseline = "top";
+      pen.fillText("Level " + level, canvas.width / 2 + 40, 14);
+      pen.textAlign = "right";
+      pen.fillText("❤️".repeat(lives), canvas.width - 16, 14);
+      pen.font = "14px sans-serif";
+      pen.fillStyle = "#aab";
+      pen.fillText("Best: " + best, canvas.width - 16, 44);
+
+      // controls reminder
+      pen.textAlign = "center";
+      pen.textBaseline = "bottom";
+      if (touchScreen) {
+        pen.fillText("Drag your paddle with a finger", canvas.width / 2, canvas.height - 6);
+      } else {
+        pen.fillText(
+          (playerCount === 2 ? "P1: A / D    P2: ← →" : "← → or A / D, or drag") +
+          "    P: pause    M: sound " + (soundOn ? "on" : "off"),
+          canvas.width / 2, canvas.height - 6
+        );
+      }
+
+      // "LEVEL UP!" that fades away
+      if (levelUpTimer > 0) {
+        pen.globalAlpha = Math.min(1, levelUpTimer);
+        pen.fillStyle = "#ffd75e";
+        pen.font = "bold 48px sans-serif";
+        pen.textBaseline = "middle";
+        pen.fillText("LEVEL " + level + "!", canvas.width / 2, canvas.height / 2);
+        pen.globalAlpha = 1;
+      }
+
+      // screens for each game state
+      if (gameState === "start") {
+        drawMessage("STAR CATCHER",
+          ["Catch the stars. Miss 3 and it's over!",
+           touchScreen ? "Drag your paddle with a finger" : "Player 1: A / D     Player 2: ← →",
+           "Best score: " + best],
+          "How many players?");
+        drawButtons();
+      }
+      if (gameState === "paused") {
+        drawMessage("PAUSED", ["Take a breather."], touchScreen ? "Tap to keep playing" : "Press P or click to keep playing");
+      }
+      if (gameState === "gameover") {
+        drawMessage("GAME OVER",
+          [resultText(), newBest ? "NEW BEST SCORE!" : "Best score: " + best],
+          "Play again?");
+        drawButtons();
+      }
+    }
+
+    // who won?
+    function resultText() {
+      if (playerCount === 1) return "You caught " + players[0].score + " stars";
+      const p1 = players[0].score;
+      const p2 = players[1].score;
+      if (p1 > p2) return "Player 1 wins, " + p1 + " to " + p2 + "!";
+      if (p2 > p1) return "Player 2 wins, " + p2 + " to " + p1 + "!";
+      return "It's a tie, " + p1 + " to " + p2 + "!";
+    }
+
+    // ---------------------------------------------------------------
+    // 6. GAME LOOP
+    // ---------------------------------------------------------------
+    let lastTime = performance.now();
+
+    function loop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
