@@ -14,17 +14,65 @@
       justify-content: center;
       align-items: center;
     }
+    /* the game area: as big as fits the screen, always 480 x 600 in shape */
+    .stage {
+      position: relative;
+      width: min(480px, 100vw, calc(95vh * 0.8));
+    }
     canvas {
+      display: block;
+      width: 100%;
+      height: auto;
       background: #1d2340;
       border: 3px solid #fff;
-      max-width: 100%;
-      max-height: 95vh;
       box-sizing: border-box;    /* count the border inside the size, so it fits a phone */
       touch-action: none;        /* dragging a finger moves the paddle, not the page */
       user-select: none;
       -webkit-user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
+    /* NEW: the box where you type your name for the top scores */
+    .name-form {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(300px, 82%);
+      padding: 18px;
+      background: #1d2340;
+      border: 3px solid #ffd75e;
+      border-radius: 8px;
+      box-shadow: 6px 6px 0 #000;
+      color: #fff;
+      font-family: sans-serif;
+      text-align: center;
+    }
+    .name-form .trophy { font-size: 40px; line-height: 1; }
+    .name-form h2 { margin: 8px 0 2px; font-size: 22px; color: #ffd75e; }
+    .name-form p { margin: 0 0 12px; color: #cfd3ee; }
+    .name-form input {
+      width: 100%;
+      padding: 10px;
+      font-size: 20px;
+      text-align: center;
+      background: #12152b;
+      color: #fff;
+      border: 2px solid #fff;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    .name-form input:focus { outline: none; border-color: #ffd75e; }
+    .name-form .row { display: flex; gap: 8px; margin-top: 12px; }
+    .name-form button {
+      flex: 1;
+      padding: 10px;
+      font: bold 17px sans-serif;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .name-form .save { background: #ffd75e; color: #1d2340; border: 2px solid #ffd75e; }
+    .name-form .skip { background: transparent; color: #fff; border: 2px solid #fff; }
+    .hidden { display: none; }
     /* link back to the arcade's home page */
     .back {
       position: fixed;
@@ -41,7 +89,21 @@
 </head>
 <body>
   <a class="back" href="../index.html">&larr; Arcade</a>
-  <canvas id="game" width="480" height="600"></canvas>
+  <div class="stage">
+    <canvas id="game" width="480" height="600"></canvas>
+
+    <!-- NEW: shows up when someone makes the top 3 -->
+    <form class="name-form hidden" id="name-form" autocomplete="off">
+      <div class="trophy">🏆</div>
+      <h2 id="name-who">You made the top 3!</h2>
+      <p id="name-score"></p>
+      <input id="name-input" type="text" maxlength="12" placeholder="Your name" aria-label="Your name" spellcheck="false">
+      <div class="row">
+        <button class="save" type="submit">Save</button>
+        <button class="skip" type="button" id="name-skip">Skip</button>
+      </div>
+    </form>
+  </div>
 
   <script>
     // ---------------------------------------------------------------
@@ -93,16 +155,78 @@
       double: { picture: "💎", message: "DOUBLE POINTS!", seconds: 10 }
     };
 
-    // NEW: game rules. Try changing these numbers!
+    // game rules. Try changing these numbers!
     const RULES = {
-      powerUpChance: 0.08,     // 8% of falling things are power-ups
-      bombChance: 0.10,        // 10% are bombs...
-      bombsFromLevel: 2,       // ...starting at level 2
       maxLives: 5,
       bonusEvery: 3,           // a BONUS ROUND at level 3, 6, 9...
       bonusSeconds: 10,
       bonusPoints: 3           // each golden star in a bonus round
     };
+
+    // NEW: DIFFICULTY. Each level of difficulty changes these numbers.
+    const DIFFICULTIES = {
+      easy: {
+        label: "EASY",
+        lives: 5,               // hearts at the start
+        paddle: 120,            // paddle width
+        fallSpeed: 0.75,        // 0.75 = stars fall 25% slower than medium
+        speedUpPerLevel: 0.15,  // each level, stars fall 15% faster
+        dropEvery: 1.0,         // seconds between falling things at level 1...
+        fastestDrop: 0.35,      // ...and the shortest gap it ever gets to
+        powerUpChance: 0.12,    // 12% of falling things are power-ups
+        bombChance: 0.05,       // 5% are bombs...
+        bombsFromLevel: 3       // ...starting at level 3
+      },
+      medium: {
+        label: "MEDIUM",
+        lives: 3,
+        paddle: 100,
+        fallSpeed: 1,
+        speedUpPerLevel: 0.25,
+        dropEvery: 0.8,
+        fastestDrop: 0.25,
+        powerUpChance: 0.08,
+        bombChance: 0.10,
+        bombsFromLevel: 2
+      },
+      hard: {
+        label: "HARD",
+        lives: 3,
+        paddle: 80,
+        fallSpeed: 1.3,
+        speedUpPerLevel: 0.25,
+        dropEvery: 0.65,
+        fastestDrop: 0.2,
+        powerUpChance: 0.06,
+        bombChance: 0.15,
+        bombsFromLevel: 1
+      }
+    };
+    const DIFFICULTY_ORDER = ["easy", "medium", "hard"];
+    let difficulty = "medium";
+    try {
+      const savedDifficulty = localStorage.getItem("starCatcherDifficulty");
+      if (DIFFICULTIES[savedDifficulty]) difficulty = savedDifficulty;
+    } catch (e) {}
+
+    // the settings for the difficulty that's picked right now
+    function settings() { return DIFFICULTIES[difficulty]; }
+
+    function setDifficulty(name) {
+      if (!DIFFICULTIES[name] || name === difficulty) return;
+      difficulty = name;
+      highlightIndex = -1;
+      newBest = false;
+      best = board().length ? board()[0].score : 0;
+      try { localStorage.setItem("starCatcherDifficulty", difficulty); } catch (e) {}
+      sounds.caught();
+    }
+
+    // ← and → step through easy, medium, hard
+    function stepDifficulty(direction) {
+      const i = DIFFICULTY_ORDER.indexOf(difficulty) + direction;
+      if (i >= 0 && i < DIFFICULTY_ORDER.length) setDifficulty(DIFFICULTY_ORDER[i]);
+    }
 
     let falling = [];          // everything falling: stars, power-ups, bombs
     let sparkles = [];         // little bits that fly out when you catch something
@@ -124,14 +248,99 @@
     let shieldTime = 0;
     let bonusTime = 0;
 
-    // the best score, saved in the browser so it's still there tomorrow
-    let best = 0;
+    // TOP 3 SCORES with names, one list for each difficulty,
+    // saved in the browser so they're still there tomorrow
+    let scores = { easy: [], medium: [], hard: [] };   // like [{ name: "Jahan", score: 54 }], best first
+    let names = ["", ""];          // the names Player 1 and Player 2 typed last time
+    let highlightIndex = -1;       // the score that was just added (shown in gold)
     let newBest = false;
-    try { best = Number(localStorage.getItem("starCatcherBest")) || 0; } catch (e) {}
 
-    function saveBest() {
-      try { localStorage.setItem("starCatcherBest", best); } catch (e) {}
+    function cleanList(list) {
+      if (!Array.isArray(list)) return [];
+      return list.filter(function (e) { return e && typeof e.score === "number"; }).slice(0, 3);
     }
+
+    try {
+      const saved = JSON.parse(localStorage.getItem("starCatcherScores") || "{}");
+      for (const name of DIFFICULTY_ORDER) scores[name] = cleanList(saved[name]);
+      const savedNames = JSON.parse(localStorage.getItem("starCatcherNames") || "[]");
+      if (Array.isArray(savedNames)) names = [savedNames[0] || "", savedNames[1] || ""];
+      // scores from older versions of the game go on the medium list
+      if (scores.medium.length === 0) {
+        scores.medium = cleanList(JSON.parse(localStorage.getItem("starCatcherTop3") || "[]"));
+        const oldBest = Number(localStorage.getItem("starCatcherBest")) || 0;
+        if (scores.medium.length === 0 && oldBest > 0) scores.medium = [{ name: "???", score: oldBest }];
+      }
+    } catch (e) {}
+
+    // the top 3 for the difficulty that's picked right now
+    function board() { return scores[difficulty]; }
+
+    let best = board().length ? board()[0].score : 0;
+
+    function saveLeaderboard() {
+      try {
+        localStorage.setItem("starCatcherScores", JSON.stringify(scores));
+        localStorage.setItem("starCatcherNames", JSON.stringify(names));
+      } catch (e) {}
+    }
+
+    // is this score good enough for the top 3?
+    function madeTopThree(score) {
+      const list = board();
+      return score > 0 && (list.length < 3 || score > list[list.length - 1].score);
+    }
+
+    function addScore(name, score) {
+      const entry = { name: name, score: score };
+      const list = board();
+      list.push(entry);
+      list.sort(function (a, b) { return b.score - a.score; });
+      scores[difficulty] = list.slice(0, 3);
+      highlightIndex = scores[difficulty].indexOf(entry);
+      if (highlightIndex === 0) newBest = true;
+      best = scores[difficulty][0].score;
+      saveLeaderboard();
+    }
+
+    // NEW: after game over, ask each player who made the top 3 for their name
+    let waitingForNames = [];
+    let askingName = null;         // the player typing a name right now
+
+    function askNextName() {
+      while (waitingForNames.length > 0 && !madeTopThree(waitingForNames[0].score)) waitingForNames.shift();
+      askingName = waitingForNames.shift() || null;
+      const form = document.getElementById("name-form");
+      if (!askingName) {
+        form.classList.add("hidden");
+        return;
+      }
+      const slot = players.indexOf(askingName);
+      document.getElementById("name-who").textContent =
+        playerCount === 2 ? askingName.name + " made the top 3!" : "You made the top 3!";
+      document.getElementById("name-score").textContent = askingName.score + " points";
+      const input = document.getElementById("name-input");
+      input.value = names[slot];
+      form.classList.remove("hidden");
+      input.focus();
+      input.select();
+    }
+
+    document.getElementById("name-form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (!askingName) return;
+      const slot = players.indexOf(askingName);
+      const typed = document.getElementById("name-input").value.replace(/\s+/g, " ").trim().slice(0, 12);
+      const name = typed || askingName.name;
+      names[slot] = typed;
+      addScore(name, askingName.score);
+      sounds.levelUp();
+      askNextName();
+    });
+    document.getElementById("name-skip").addEventListener("click", askNextName);
+    document.getElementById("name-input").addEventListener("keydown", function (event) {
+      if (event.key === "Escape") askNextName();
+    });
 
     // only the players who are in this game
     function activePlayers() {
@@ -151,7 +360,7 @@
       falling = [];
       sparkles = [];
       popups = [];
-      lives = 3;
+      lives = settings().lives;        // NEW: depends on the difficulty
       level = 1;
       starsCaught = 0;
       spawnTimer = 0;
@@ -164,6 +373,7 @@
       newBest = false;
       for (const p of players) {
         p.score = 0;
+        p.baseWidth = settings().paddle;  // NEW: smaller paddle on hard, bigger on easy
         p.width = p.baseWidth;
         p.bigTime = 0;
         p.doubleTime = 0;
@@ -181,11 +391,11 @@
     function endGame() {
       gameState = "gameover";
       sounds.gameOver();
-      if (teamScore() > best) {
-        best = teamScore();
-        newBest = true;
-        saveBest();
-      }
+      newBest = false;
+      highlightIndex = -1;
+      // best score first, so the winner gets asked first
+      waitingForNames = activePlayers().slice().sort(function (a, b) { return b.score - a.score; });
+      askNextName();
     }
 
     // ---------------------------------------------------------------
@@ -239,6 +449,8 @@
     const keys = {};
 
     document.addEventListener("keydown", function (event) {
+      // NEW: while typing a name, the keys are for the name, not the game
+      if (askingName || event.target.tagName === "INPUT") return;
       keys[event.key] = true;
       if (event.key.startsWith("Arrow") || event.key === " ") event.preventDefault();
       startAudio();
@@ -248,6 +460,8 @@
         if (event.key === "1") startGame(1);
         if (event.key === "2") startGame(2);
         if (event.key === " ") startGame(playerCount);
+        if (event.key === "ArrowLeft") stepDifficulty(-1);     // NEW: pick easy, medium or hard
+        if (event.key === "ArrowRight") stepDifficulty(1);
       }
 
       // P pauses, M turns the sound on and off
@@ -293,6 +507,13 @@
       { label: "2 PLAYERS", players: 2, x: 250, y: 425, width: 180, height: 56 }
     ];
 
+    // NEW: the EASY, MEDIUM and HARD buttons
+    const difficultyButtons = [
+      { name: "easy",   x: 48,  y: 222, width: 120, height: 38 },
+      { name: "medium", x: 180, y: 222, width: 120, height: 38 },
+      { name: "hard",   x: 312, y: 222, width: 120, height: 38 }
+    ];
+
     // is the spot inside the box? (the same idea as star-and-paddle collision!)
     function inside(spot, box) {
       return spot.x > box.x && spot.x < box.x + box.width &&
@@ -301,9 +522,13 @@
 
     canvas.addEventListener("pointerdown", function (event) {
       startAudio();
+      if (askingName) return;         // finish typing your name first
       const spot = gameSpot(event);
 
       if (gameState === "start" || gameState === "gameover") {
+        for (const b of difficultyButtons) {
+          if (inside(spot, b)) setDifficulty(b.name);
+        }
         for (const b of buttons) {
           if (inside(spot, b)) startGame(b.players);
         }
@@ -340,7 +565,8 @@
 
     // NEW: drop something from the sky: usually a star, sometimes a power-up or a bomb
     function spawnThing() {
-      const levelBoost = 1 + (level - 1) * 0.25;
+      const d = settings();
+      const levelBoost = d.fallSpeed * (1 + (level - 1) * d.speedUpPerLevel);
       const thing = {
         kind: "star",
         picture: starPicture,
@@ -357,13 +583,13 @@
         thing.size = 36;
       } else {
         const roll = Math.random();
-        if (roll < RULES.powerUpChance) {
+        if (roll < d.powerUpChance) {
           thing.kind = "power";
           thing.power = pickPowerUp();
           thing.picture = POWER_UPS[thing.power].picture;
           thing.size = 36;
           thing.speed = 150;              // power-ups fall gently so you can reach them
-        } else if (level >= RULES.bombsFromLevel && roll < RULES.powerUpChance + RULES.bombChance) {
+        } else if (level >= d.bombsFromLevel && roll < d.powerUpChance + d.bombChance) {
           thing.kind = "bomb";
           thing.picture = "💣";
           thing.size = 34;
@@ -552,7 +778,8 @@
       }
 
       // things drop faster in a bonus round
-      const spawnEvery = bonusTime > 0 ? 0.22 : Math.max(0.25, 0.8 - (level - 1) * 0.1);
+      const d = settings();
+      const spawnEvery = bonusTime > 0 ? 0.22 : Math.max(d.fastestDrop, d.dropEvery - (level - 1) * 0.1);
       spawnTimer += dt;
       if (spawnTimer >= spawnEvery) {
         spawnTimer = 0;
@@ -641,11 +868,99 @@
     function drawPowerUpGuide() {
       pen.textAlign = "center";
       pen.textBaseline = "middle";
-      pen.font = "15px sans-serif";
+      pen.font = "14px sans-serif";
       pen.fillStyle = "#cfd3ee";
-      pen.fillText("❤️ extra life    🍄 big paddle    🧲 star magnet", canvas.width / 2, 100);
-      pen.fillText("🐢 slow motion    🛡️ shield    💎 double points", canvas.width / 2, 128);
-      pen.fillText("Dodge 💣 bombs!   🌟 Bonus round every 3 levels", canvas.width / 2, 156);
+      pen.fillText("❤️ extra life    🍄 big paddle    🧲 star magnet", canvas.width / 2, 72);
+      pen.fillText("🐢 slow motion    🛡️ shield    💎 double points", canvas.width / 2, 94);
+      pen.fillText("Dodge 💣 bombs!   🌟 Bonus round every 3 levels", canvas.width / 2, 116);
+    }
+
+    // NEW: EASY / MEDIUM / HARD buttons (the picked one is yellow)
+    function drawDifficultyButtons() {
+      for (const b of difficultyButtons) {
+        const picked = b.name === difficulty;
+        pen.fillStyle = picked ? "#ffd75e" : "rgba(255, 255, 255, 0.08)";
+        pen.fillRect(b.x, b.y, b.width, b.height);
+        pen.strokeStyle = picked ? "#ffd75e" : "#8a8fb0";
+        pen.lineWidth = 2;
+        pen.strokeRect(b.x, b.y, b.width, b.height);
+        pen.fillStyle = picked ? "#1d2340" : "white";
+        pen.font = "bold 17px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText(DIFFICULTIES[b.name].label, b.x + b.width / 2, b.y + b.height / 2 + 1);
+      }
+    }
+
+    // the top 3 scores with medals, for the difficulty that's picked
+    function drawLeaderboard(top) {
+      pen.textBaseline = "middle";
+      pen.textAlign = "center";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 17px sans-serif";
+      pen.fillText("🏆 TOP SCORES · " + settings().label + " 🏆", canvas.width / 2, top);
+
+      const medals = ["🥇", "🥈", "🥉"];
+      for (let i = 0; i < 3; i++) {
+        const entry = board()[i];
+        const y = top + 28 + i * 24;
+        const isNew = i === highlightIndex;
+        pen.font = (isNew ? "bold " : "") + "18px sans-serif";
+        pen.fillStyle = isNew ? "#ffd75e" : (entry ? "white" : "#8a8fb0");
+        pen.textAlign = "left";
+        pen.fillText(medals[i] + "  " + (entry ? entry.name : "-----"), 125, y);
+        pen.textAlign = "right";
+        pen.fillText(entry ? String(entry.score) : "", 355, y);
+      }
+    }
+
+    function dimScreen() {
+      pen.fillStyle = "rgba(0, 0, 0, 0.7)";
+      pen.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function drawStartScreen() {
+      dimScreen();
+      drawPowerUpGuide();
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "bold 44px sans-serif";
+      pen.fillText("STAR CATCHER", canvas.width / 2, 160);
+      pen.font = "18px sans-serif";
+      pen.fillText("Catch ⭐, grab power-ups, dodge 💣!", canvas.width / 2, 198);
+      drawDifficultyButtons();
+      drawLeaderboard(290);
+      pen.textAlign = "center";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 19px sans-serif";
+      pen.fillText("How many players?", canvas.width / 2, 402);
+      drawButtons();
+    }
+
+    function drawGameOverScreen() {
+      dimScreen();
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "bold 44px sans-serif";
+      pen.fillText("GAME OVER", canvas.width / 2, 128);
+      pen.font = "20px sans-serif";
+      pen.fillText(resultText(), canvas.width / 2, 168);
+      if (newBest || highlightIndex >= 0) {
+        pen.fillStyle = "#ffd75e";
+        pen.font = "bold 20px sans-serif";
+        pen.fillText(newBest ? "NEW HIGH SCORE!" : "You made the top 3!", canvas.width / 2, 196);
+      }
+      drawDifficultyButtons();
+      drawLeaderboard(290);
+      if (!askingName) {                // buttons come back once names are typed
+        pen.textAlign = "center";
+        pen.fillStyle = "#ffd75e";
+        pen.font = "bold 19px sans-serif";
+        pen.fillText("Play again?", canvas.width / 2, 402);
+        drawButtons();
+      }
     }
 
     // a paddle with a white outline, so even a black paddle shows up
@@ -773,7 +1088,7 @@
       pen.fillText("❤️".repeat(lives), canvas.width - 16, 14);
       pen.font = "14px sans-serif";
       pen.fillStyle = "#aab";
-      pen.fillText("Best: " + best, canvas.width - 16, 44);
+      pen.fillText(settings().label + " · Best " + best, canvas.width - 16, 44);
 
       drawActivePowerUps();
 
@@ -784,6 +1099,8 @@
       pen.textBaseline = "bottom";
       if (touchScreen) {
         pen.fillText("Drag your paddle with a finger", canvas.width / 2, canvas.height - 6);
+      } else if (gameState === "start" || gameState === "gameover") {
+        pen.fillText("← → difficulty    1 / 2: players    P1: A / D    P2: ← →", canvas.width / 2, canvas.height - 6);
       } else {
         pen.fillText(
           (playerCount === 2 ? "P1: A / D    P2: ← →" : "← → or A / D, or drag") +
@@ -804,24 +1121,11 @@
       }
 
       // screens for each game state
-      if (gameState === "start") {
-        drawMessage("STAR CATCHER",
-          ["Catch ⭐, grab power-ups, dodge 💣!",
-           touchScreen ? "Drag your paddle with a finger" : "Player 1: A / D     Player 2: ← →",
-           "Best score: " + best],
-          "How many players?");
-        drawPowerUpGuide();
-        drawButtons();
-      }
+      if (gameState === "start") drawStartScreen();
       if (gameState === "paused") {
         drawMessage("PAUSED", ["Take a breather."], touchScreen ? "Tap to keep playing" : "Press P or click to keep playing");
       }
-      if (gameState === "gameover") {
-        drawMessage("GAME OVER",
-          [resultText(), newBest ? "NEW BEST SCORE!" : "Best score: " + best],
-          "Play again?");
-        drawButtons();
-      }
+      if (gameState === "gameover") drawGameOverScreen();
     }
 
     // who won?
