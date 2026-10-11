@@ -293,6 +293,7 @@
 
     let onlineScores = { easy: null, medium: null, hard: null };   // null = not loaded (yet)
     let lastOnlineCheck = -999;              // when we last asked the database (in game seconds)
+    let lastAllCheck = -999;                 // when we last checked all three difficulties
     let checkingScores = false;              // true for a moment after game over
     let onlineNote = "";                     // e.g. "Couldn't reach the online scoreboard"
 
@@ -305,7 +306,7 @@
           body: JSON.stringify({ structuredQuery: {
             from: [{ collectionId: "scores" }],
             orderBy: [{ field: { fieldPath: "score" }, direction: "DESCENDING" }],
-            limit: 10
+            limit: 6               // a few extra, in case an unkind name has to be skipped
           } })
         });
         if (!response.ok) throw new Error("status " + response.status);
@@ -735,7 +736,14 @@
     // pause by itself if you switch apps or tabs
     document.addEventListener("visibilitychange", function () {
       if (document.hidden && gameState === "playing") gameState = "paused";
+      if (!document.hidden) refreshScoresSoon();     // NEW: back in the app? get the newest scores
     });
+    window.addEventListener("focus", refreshScoresSoon);
+
+    function refreshScoresSoon() {
+      lastOnlineCheck = -999;
+      lastAllCheck = -999;
+    }
 
     // ---------------------------------------------------------------
     // Helper functions
@@ -896,11 +904,20 @@
       if (shakeTime > 0) shakeTime -= dt;
       if (bannerTimer > 0) bannerTimer -= dt;
 
-      // NEW: on the menu screens, check for new online scores every 30 seconds
+      // NEW: keep the scoreboard up to date. Every 10 seconds on the menus, every 30 seconds
+      // while playing, and all three difficulties every 30 seconds on the menus.
       const onMenu = gameState === "start" || gameState === "gameover";
-      if (onMenu && !checkingScores && !nameFormOpen && clock - lastOnlineCheck > 30) {
-        lastOnlineCheck = clock;
-        loadOnlineScores(difficulty);
+      if (!document.hidden && !checkingScores) {
+        if (clock - lastOnlineCheck > (onMenu ? 10 : 30)) {
+          lastOnlineCheck = clock;
+          loadOnlineScores(difficulty);
+        }
+        if (onMenu && clock - lastAllCheck > 30) {
+          lastAllCheck = clock;
+          for (const name of DIFFICULTY_ORDER) {
+            if (name !== difficulty) loadOnlineScores(name);
+          }
+        }
       }
 
       if (gameState !== "playing") return;
@@ -1102,6 +1119,22 @@
       }
     }
 
+    // NEW: the #1 score on the other two difficulties, e.g. "EASY: Jahan 54 · HARD: —"
+    function drawOtherBests(y) {
+      const parts = [];
+      for (const name of DIFFICULTY_ORDER) {
+        if (name === difficulty) continue;
+        const list = onlineScores[name] || scores[name];
+        const top = list[0];
+        parts.push(DIFFICULTIES[name].label + ": " + (top && isKidFriendly(top.name) ? top.name + " " + top.score : "—"));
+      }
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "#aab";
+      pen.font = "13px sans-serif";
+      pen.fillText("#1 on " + parts.join("   ·   "), canvas.width / 2, y);
+    }
+
     function dimScreen() {
       pen.fillStyle = "rgba(0, 0, 0, 0.7)";
       pen.fillRect(0, 0, canvas.width, canvas.height);
@@ -1119,10 +1152,11 @@
       pen.fillText("Catch ⭐, grab power-ups, dodge 💣!", canvas.width / 2, 198);
       drawDifficultyButtons();
       drawLeaderboard(290);
+      drawOtherBests(386);
       pen.textAlign = "center";
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 19px sans-serif";
-      pen.fillText("How many players?", canvas.width / 2, 402);
+      pen.fillText("How many players?", canvas.width / 2, 408);
       drawButtons();
       drawPlayingAs();
     }
@@ -1168,14 +1202,16 @@
         pen.fillStyle = "#ff8fc7";
         pen.font = "13px sans-serif";
         pen.fillText(onlineNote + " Saved on this device.", canvas.width / 2, 386);
+      } else {
+        drawOtherBests(386);
       }
       pen.textAlign = "center";
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 19px sans-serif";
       if (checkingScores) {
-        pen.fillText("Checking the scoreboard…", canvas.width / 2, 402);
+        pen.fillText("Checking the scoreboard…", canvas.width / 2, 408);
       } else {
-        pen.fillText("Play again?", canvas.width / 2, 402);
+        pen.fillText("Play again?", canvas.width / 2, 408);
         drawButtons();
         drawPlayingAs();
       }
@@ -1376,6 +1412,7 @@
     // NEW: fetch everyone's top scores for all three difficulties
     for (const name of DIFFICULTY_ORDER) loadOnlineScores(name);
     lastOnlineCheck = 0;
+    lastAllCheck = 0;
 
     requestAnimationFrame(loop);
   </script>
