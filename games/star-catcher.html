@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <!-- NEW: tells phones to show the page at its real size instead of zoomed out -->
+  <!-- tells phones to show the page at its real size instead of zoomed out -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Star Catcher</title>
   <style>
@@ -19,8 +19,8 @@
       border: 3px solid #fff;
       max-width: 100%;
       max-height: 95vh;
-      box-sizing: border-box;    /* NEW: count the border inside the size, so it fits a phone */
-      touch-action: none;       /* NEW: dragging a finger moves the paddle, not the page */
+      box-sizing: border-box;    /* count the border inside the size, so it fits a phone */
+      touch-action: none;        /* dragging a finger moves the paddle, not the page */
       user-select: none;
       -webkit-user-select: none;
       -webkit-tap-highlight-color: transparent;
@@ -54,7 +54,7 @@
     // 2. STATE
     // ---------------------------------------------------------------
 
-    // NEW: two paddles instead of one. Change the colors to anything you like!
+    // two paddles. Change the colors to anything you like!
     const players = [
       {
         name: "Player 1",
@@ -62,8 +62,11 @@
         leftKey: "a",
         rightKey: "d",
         x: 190, y: 550, width: 100, height: 20,
+        baseWidth: 100,      // NEW: normal size (the mushroom makes it bigger)
         speed: 300,
-        score: 0
+        score: 0,
+        bigTime: 0,          // NEW: seconds of BIG PADDLE left
+        doubleTime: 0        // NEW: seconds of DOUBLE POINTS left
       },
       {
         name: "Player 2",
@@ -71,23 +74,57 @@
         leftKey: "ArrowLeft",
         rightKey: "ArrowRight",
         x: 0, y: 550, width: 100, height: 20,
+        baseWidth: 100,
         speed: 300,
-        score: 0
+        score: 0,
+        bigTime: 0,
+        doubleTime: 0
       }
     ];
-    let playerCount = 1;       // NEW: 1 or 2 players
+    let playerCount = 1;       // 1 or 2 players
 
-    let stars = [];
-    let sparkles = [];         // NEW: little bits that fly out when you catch a star
+    // NEW: POWER-UPS. Each one has a picture, a message, and how many seconds it lasts.
+    const POWER_UPS = {
+      life:   { picture: "❤️", message: "+1 LIFE!" },
+      big:    { picture: "🍄", message: "BIG PADDLE!",    seconds: 10 },
+      magnet: { picture: "🧲", message: "STAR MAGNET!",   seconds: 8 },
+      slow:   { picture: "🐢", message: "SLOW MOTION!",   seconds: 6 },
+      shield: { picture: "🛡️", message: "SHIELD!",        seconds: 10 },
+      double: { picture: "💎", message: "DOUBLE POINTS!", seconds: 10 }
+    };
+
+    // NEW: game rules. Try changing these numbers!
+    const RULES = {
+      powerUpChance: 0.08,     // 8% of falling things are power-ups
+      bombChance: 0.10,        // 10% are bombs...
+      bombsFromLevel: 2,       // ...starting at level 2
+      maxLives: 5,
+      bonusEvery: 3,           // a BONUS ROUND at level 3, 6, 9...
+      bonusSeconds: 10,
+      bonusPoints: 3           // each golden star in a bonus round
+    };
+
+    let falling = [];          // everything falling: stars, power-ups, bombs
+    let sparkles = [];         // little bits that fly out when you catch something
+    let popups = [];           // NEW: words that float up, like "+3" or "SHIELD!"
     let lives = 3;
     let level = 1;
+    let starsCaught = 0;       // NEW: normal stars caught. Every 10 is a new level.
     let gameState = "start";   // "start", "playing", "paused" or "gameover"
     const starPicture = "⭐";
     let spawnTimer = 0;
-    let levelUpTimer = 0;      // NEW: how long to show "LEVEL UP!"
-    let shakeTime = 0;         // NEW: how long the screen shakes after a miss
+    let shakeTime = 0;         // how long the screen shakes
+    let bannerText = "";       // NEW: big message in the middle ("LEVEL 2!", "BONUS ROUND!")
+    let bannerTimer = 0;
+    let clock = 0;             // NEW: seconds since the page opened (for blinking and glowing)
 
-    // NEW: the best score, saved in the browser so it's still there tomorrow
+    // NEW: power-ups that help everyone (seconds left)
+    let magnetTime = 0;
+    let slowTime = 0;
+    let shieldTime = 0;
+    let bonusTime = 0;
+
+    // the best score, saved in the browser so it's still there tomorrow
     let best = 0;
     let newBest = false;
     try { best = Number(localStorage.getItem("starCatcherBest")) || 0; } catch (e) {}
@@ -111,15 +148,26 @@
     function startGame(count) {
       playerCount = count;
       fingers = {};
-      stars = [];
+      falling = [];
       sparkles = [];
+      popups = [];
       lives = 3;
       level = 1;
+      starsCaught = 0;
       spawnTimer = 0;
-      levelUpTimer = 0;
       shakeTime = 0;
+      bannerTimer = 0;
+      magnetTime = 0;
+      slowTime = 0;
+      shieldTime = 0;
+      bonusTime = 0;
       newBest = false;
-      for (const p of players) p.score = 0;
+      for (const p of players) {
+        p.score = 0;
+        p.width = p.baseWidth;
+        p.bigTime = 0;
+        p.doubleTime = 0;
+      }
 
       if (playerCount === 1) {
         players[0].x = (canvas.width - players[0].width) / 2;
@@ -141,7 +189,7 @@
     }
 
     // ---------------------------------------------------------------
-    // NEW: SOUND. No sound files needed: the browser makes the beeps itself.
+    // SOUND. No sound files needed: the browser makes the beeps itself.
     // ---------------------------------------------------------------
     let audio = null;          // the browser's sound engine
     let soundOn = true;
@@ -170,10 +218,19 @@
     }
 
     const sounds = {
-      caught:   function () { beep(440, 0.08); beep(1320, 0.1, "square", 0.06); },
-      missed:   function () { beep(140, 0.3, "sawtooth"); },
-      levelUp:  function () { beep(523, 0.12, "triangle"); beep(659, 0.12, "triangle", 0.1); beep(784, 0.25, "triangle", 0.2); },
-      gameOver: function () { beep(392, 0.25, "triangle"); beep(330, 0.25, "triangle", 0.25); beep(262, 0.6, "triangle", 0.5); }
+      caught:    function () { beep(440, 0.08); beep(1320, 0.1, "square", 0.06); },
+      missed:    function () { beep(140, 0.3, "sawtooth"); },
+      levelUp:   function () { beep(523, 0.12, "triangle"); beep(659, 0.12, "triangle", 0.1); beep(784, 0.25, "triangle", 0.2); },
+      gameOver:  function () { beep(392, 0.25, "triangle"); beep(330, 0.25, "triangle", 0.25); beep(262, 0.6, "triangle", 0.5); },
+      // NEW sounds
+      powerUp:   function () { beep(523, 0.08, "triangle"); beep(659, 0.08, "triangle", 0.06); beep(784, 0.08, "triangle", 0.12); beep(1047, 0.2, "triangle", 0.18); },
+      boom:      function () { beep(90, 0.5, "sawtooth"); beep(55, 0.7, "square", 0.05); },
+      shield:    function () { beep(600, 0.12, "triangle"); beep(900, 0.1, "triangle", 0.05); },
+      bonusStar: function () { beep(1320, 0.06); beep(1760, 0.08, "square", 0.04); },
+      bonus:     function () {
+        const tune = [523, 659, 784, 1047, 784, 1047];
+        tune.forEach(function (pitch, i) { beep(pitch, 0.12, "square", i * 0.09); });
+      }
     };
 
     // ---------------------------------------------------------------
@@ -193,7 +250,7 @@
         if (event.key === " ") startGame(playerCount);
       }
 
-      // NEW: P pauses, M turns the sound on and off
+      // P pauses, M turns the sound on and off
       const letter = event.key.toLowerCase();
       if (letter === "p") {
         if (gameState === "playing") gameState = "paused";
@@ -207,7 +264,7 @@
     });
 
     // ---------------------------------------------------------------
-    // NEW: TOUCH and MOUSE. Put a finger down and drag: the closest paddle follows it.
+    // TOUCH and MOUSE. Put a finger down and drag: the closest paddle follows it.
     // ---------------------------------------------------------------
     const touchScreen = window.matchMedia("(pointer: coarse)").matches;   // phone or tablet?
     let fingers = {};          // every finger on the screen, and which paddle it's holding
@@ -272,7 +329,7 @@
     canvas.addEventListener("pointerup", liftFinger);
     canvas.addEventListener("pointercancel", liftFinger);
 
-    // NEW: pause by itself if you switch apps or tabs
+    // pause by itself if you switch apps or tabs
     document.addEventListener("visibilitychange", function () {
       if (document.hidden && gameState === "playing") gameState = "paused";
     });
@@ -280,42 +337,145 @@
     // ---------------------------------------------------------------
     // Helper functions
     // ---------------------------------------------------------------
-    function spawnStar() {
+
+    // NEW: drop something from the sky: usually a star, sometimes a power-up or a bomb
+    function spawnThing() {
       const levelBoost = 1 + (level - 1) * 0.25;
-      stars.push({
+      const thing = {
+        kind: "star",
+        picture: starPicture,
         x: 20 + Math.random() * (canvas.width - 40),
         y: -20,
         size: 32,
         speed: (120 + Math.random() * 120) * levelBoost
-      });
+      };
+
+      if (bonusTime > 0) {
+        // bonus round: only golden stars
+        thing.kind = "bonus";
+        thing.picture = "🌟";
+        thing.size = 36;
+      } else {
+        const roll = Math.random();
+        if (roll < RULES.powerUpChance) {
+          thing.kind = "power";
+          thing.power = pickPowerUp();
+          thing.picture = POWER_UPS[thing.power].picture;
+          thing.size = 36;
+          thing.speed = 150;              // power-ups fall gently so you can reach them
+        } else if (level >= RULES.bombsFromLevel && roll < RULES.powerUpChance + RULES.bombChance) {
+          thing.kind = "bomb";
+          thing.picture = "💣";
+          thing.size = 34;
+        }
+      }
+      falling.push(thing);
     }
 
-    function touching(star, paddle) {
-      const half = star.size / 2;
-      return star.x + half > paddle.x &&
-             star.x - half < paddle.x + paddle.width &&
-             star.y + half > paddle.y &&
-             star.y - half < paddle.y + paddle.height;
+    // pick a random power-up (no extra life if your hearts are already full)
+    function pickPowerUp() {
+      let choices = Object.keys(POWER_UPS);
+      if (lives >= RULES.maxLives) {
+        choices = choices.filter(function (name) { return name !== "life"; });
+      }
+      return choices[Math.floor(Math.random() * choices.length)];
     }
 
-    // NEW: throw out a handful of sparkles in random directions
-    function burst(x, y) {
+    function touching(thing, paddle) {
+      const half = thing.size / 2;
+      return thing.x + half > paddle.x &&
+             thing.x - half < paddle.x + paddle.width &&
+             thing.y + half > paddle.y &&
+             thing.y - half < paddle.y + paddle.height;
+    }
+
+    // throw out a handful of sparkles in random directions
+    function burst(x, y, colors, power) {
+      colors = colors || ["#ffd75e", "white"];
+      power = power || 320;
       for (let i = 0; i < 60; i++) {
         sparkles.push({
           x: x,
           y: y,
-          moveX: (Math.random() - 0.5) * 320,
-          moveY: (Math.random() - 0.5) * 320,
+          moveX: (Math.random() - 0.5) * power,
+          moveY: (Math.random() - 0.5) * power,
           life: 0.6,                                        // seconds left
-          color: Math.random() < 0.5 ? "#ffd75e" : "white"
+          color: colors[Math.floor(Math.random() * colors.length)]
         });
       }
+    }
+
+    // NEW: words that float up and fade, like "+3"
+    function popup(text, x, y, color) {
+      popups.push({ text: text, x: Math.max(90, Math.min(canvas.width - 90, x)), y: y, color: color, life: 1 });
+    }
+
+    // NEW: big message in the middle of the screen
+    function banner(text) {
+      bannerText = text;
+      bannerTimer = 1.5;
+    }
+
+    // NEW: what happens when a paddle catches something
+    function collect(thing, p) {
+      thing.gone = true;
+
+      if (thing.kind === "bomb") {
+        lives -= 1;
+        shakeTime = 0.5;
+        burst(thing.x, thing.y, ["#ff6b3d", "#ffd75e", "#888"], 520);
+        popup("OUCH!", thing.x, thing.y - 20, "#ff6b6b");
+        sounds.boom();
+        return;
+      }
+
+      if (thing.kind === "power") {
+        usePowerUp(thing.power, p);
+        burst(thing.x, thing.y, ["#7df9ff", "white"]);
+        popup(POWER_UPS[thing.power].message, thing.x, thing.y - 20, "#7df9ff");
+        sounds.powerUp();
+        return;
+      }
+
+      // a star: normal stars are 1 point, golden bonus stars more, and the diamond doubles it
+      let points = thing.kind === "bonus" ? RULES.bonusPoints : 1;
+      if (p.doubleTime > 0) points = points * 2;
+      p.score += points;
+      if (thing.kind === "star") starsCaught += 1;
+      burst(thing.x, thing.y);
+      if (points > 1) popup("+" + points, thing.x, thing.y - 20, "#ffd75e");
+      if (thing.kind === "bonus") sounds.bonusStar(); else sounds.caught();
+    }
+
+    function usePowerUp(power, p) {
+      const seconds = POWER_UPS[power].seconds;
+      if (power === "life") lives = Math.min(RULES.maxLives, lives + 1);
+      if (power === "big") p.bigTime = seconds;          // only the paddle that caught it
+      if (power === "double") p.doubleTime = seconds;    // only the player who caught it
+      if (power === "magnet") magnetTime = seconds;      // these help everyone
+      if (power === "slow") slowTime = seconds;
+      if (power === "shield") shieldTime = seconds;
+    }
+
+    // NEW: the bonus round
+    function startBonus() {
+      bonusTime = RULES.bonusSeconds;
+      for (const thing of falling) {
+        if (thing.kind === "bomb") {                  // bombs vanish in a puff of smoke
+          thing.gone = true;
+          burst(thing.x, thing.y, ["#999", "white"]);
+        }
+      }
+      banner("BONUS ROUND!");
+      sounds.bonus();
     }
 
     // ---------------------------------------------------------------
     // 4. UPDATE
     // ---------------------------------------------------------------
     function update(dt) {
+      clock += dt;
+
       // effects keep fading even on the game over screen
       for (const s of sparkles) {
         s.x += s.moveX * dt;
@@ -324,12 +484,41 @@
         s.life -= dt;
       }
       sparkles = sparkles.filter(function (s) { return s.life > 0; });
+      for (const word of popups) {
+        word.y -= 40 * dt;            // float up
+        word.life -= dt;
+      }
+      popups = popups.filter(function (word) { return word.life > 0; });
       if (shakeTime > 0) shakeTime -= dt;
-      if (levelUpTimer > 0) levelUpTimer -= dt;
+      if (bannerTimer > 0) bannerTimer -= dt;
 
       if (gameState !== "playing") return;
 
-      // NEW: each finger pulls its paddle to where the finger is
+      // NEW: power-up timers count down
+      magnetTime = Math.max(0, magnetTime - dt);
+      slowTime = Math.max(0, slowTime - dt);
+      shieldTime = Math.max(0, shieldTime - dt);
+      for (const p of players) {
+        p.bigTime = Math.max(0, p.bigTime - dt);
+        p.doubleTime = Math.max(0, p.doubleTime - dt);
+      }
+      if (bonusTime > 0) {
+        bonusTime -= dt;
+        if (bonusTime <= 0) {
+          bonusTime = 0;
+          banner("BONUS OVER!");
+        }
+      }
+
+      for (const p of activePlayers()) {
+        // NEW: grow or shrink smoothly, staying centered
+        const targetWidth = p.bigTime > 0 ? p.baseWidth * 1.8 : p.baseWidth;
+        const center = p.x + p.width / 2;
+        p.width += (targetWidth - p.width) * Math.min(1, dt * 8);
+        p.x = center - p.width / 2;
+      }
+
+      // each finger pulls its paddle to where the finger is
       for (const id in fingers) {
         const finger = fingers[id];
         finger.paddle.x = finger.x - finger.paddle.width / 2;
@@ -350,43 +539,61 @@
         if (p.x > canvas.width - p.width) p.x = canvas.width - p.width;
       }
 
-      // difficulty, plus a fanfare when the level goes up
-      const newLevel = 1 + Math.floor(teamScore() / 10);
+      // NEW: every 10 normal stars is a new level, and some levels start a bonus round
+      const newLevel = 1 + Math.floor(starsCaught / 10);
       if (newLevel > level) {
-        sounds.levelUp();
-        levelUpTimer = 1.2;
+        level = newLevel;
+        if (level % RULES.bonusEvery === 0) {
+          startBonus();
+        } else {
+          banner("LEVEL " + level + "!");
+          sounds.levelUp();
+        }
       }
-      level = newLevel;
-      const spawnEvery = Math.max(0.25, 0.8 - (level - 1) * 0.1);
 
+      // things drop faster in a bonus round
+      const spawnEvery = bonusTime > 0 ? 0.22 : Math.max(0.25, 0.8 - (level - 1) * 0.1);
       spawnTimer += dt;
       if (spawnTimer >= spawnEvery) {
         spawnTimer = 0;
-        spawnStar();
+        spawnThing();
       }
 
-      // move every star, check which paddle (if any) caught it
-      for (const star of stars) {
-        star.y += star.speed * dt;
+      const slowDown = slowTime > 0 ? 0.5 : 1;     // the turtle makes everything fall at half speed
+
+      for (const thing of falling) {
+        thing.y += thing.speed * slowDown * dt;
+
+        // the magnet pulls good things sideways toward the closest paddle (never bombs!)
+        if (magnetTime > 0 && thing.kind !== "bomb") {
+          const p = closestPaddle(thing.x);
+          const pull = 220 * dt;
+          const gap = p.x + p.width / 2 - thing.x;
+          thing.x += Math.max(-pull, Math.min(pull, gap));
+        }
 
         for (const p of activePlayers()) {
-          if (!star.gone && touching(star, p)) {
-            p.score += 1;
-            star.gone = true;
-            burst(star.x, star.y);
-            sounds.caught();
-          }
+          if (!thing.gone && touching(thing, p)) collect(thing, p);
         }
 
-        if (!star.gone && star.y > canvas.height + star.size) {
-          lives -= 1;
-          star.gone = true;
-          shakeTime = 0.25;
-          sounds.missed();
+        // the shield catches stars just before they hit the ground
+        if (!thing.gone && shieldTime > 0 && thing.kind === "star" && thing.y > canvas.height - 28) {
+          thing.gone = true;
+          burst(thing.x, canvas.height - 28, ["#7df9ff", "white"]);
+          sounds.shield();
+        }
+
+        if (!thing.gone && thing.y > canvas.height + thing.size) {
+          thing.gone = true;
+          if (thing.kind === "star") {           // only missing a normal star costs a life
+            lives -= 1;
+            shakeTime = 0.25;
+            sounds.missed();
+          }
         }
       }
 
-      stars = stars.filter(function (star) { return !star.gone; });
+      falling = falling.filter(function (thing) { return !thing.gone; });
 
       if (lives <= 0) {
         lives = 0;
@@ -397,7 +604,7 @@
     // ---------------------------------------------------------------
     // 5. DRAW
     // ---------------------------------------------------------------
-    // NEW: draw the 1 PLAYER and 2 PLAYERS buttons
+    // draw the 1 PLAYER and 2 PLAYERS buttons
     function drawButtons() {
       for (const b of buttons) {
         pen.fillStyle = "#ffd75e";
@@ -430,20 +637,33 @@
       pen.fillText(prompt, canvas.width / 2, canvas.height / 2 + 100);
     }
 
+    // NEW: a little guide to the power-ups on the start screen
+    function drawPowerUpGuide() {
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.font = "15px sans-serif";
+      pen.fillStyle = "#cfd3ee";
+      pen.fillText("❤️ extra life    🍄 big paddle    🧲 star magnet", canvas.width / 2, 100);
+      pen.fillText("🐢 slow motion    🛡️ shield    💎 double points", canvas.width / 2, 128);
+      pen.fillText("Dodge 💣 bombs!   🌟 Bonus round every 3 levels", canvas.width / 2, 156);
+    }
+
     // a paddle with a white outline, so even a black paddle shows up
     function drawPaddle(p) {
       pen.fillStyle = p.color;
       pen.fillRect(p.x, p.y, p.width, p.height);
-      pen.strokeStyle = "white";
-      pen.lineWidth = 2;
+      pen.strokeStyle = p.doubleTime > 0 ? "#ffd75e" : "white";   // gold outline = double points
+      pen.lineWidth = p.doubleTime > 0 ? 4 : 2;
       pen.strokeRect(p.x, p.y, p.width, p.height);
 
-      if (playerCount === 2) {        // label so you know whose is whose
-        pen.fillStyle = "white";
+      let label = playerCount === 2 ? (p.name === "Player 1" ? "P1" : "P2") : "";
+      if (p.doubleTime > 0) label += (label ? " " : "") + "x2";
+      if (label) {
+        pen.fillStyle = p.doubleTime > 0 ? "#ffd75e" : "white";
         pen.font = "bold 12px sans-serif";
         pen.textAlign = "center";
         pen.textBaseline = "bottom";
-        pen.fillText(p.name === "Player 1" ? "P1" : "P2", p.x + p.width / 2, p.y - 4);
+        pen.fillText(label, p.x + p.width / 2, p.y - 4);
       }
     }
 
@@ -460,8 +680,33 @@
       pen.fillText(p.name + ": " + p.score, 40, y - 2);
     }
 
+    // NEW: the power-ups that are on right now, with seconds left
+    function drawActivePowerUps() {
+      const active = [];
+      if (magnetTime > 0) active.push("🧲" + Math.ceil(magnetTime));
+      if (slowTime > 0) active.push("🐢" + Math.ceil(slowTime));
+      if (shieldTime > 0) active.push("🛡️" + Math.ceil(shieldTime));
+      for (const p of activePlayers()) {
+        const who = playerCount === 2 ? (p.name === "Player 1" ? "P1" : "P2") : "";
+        if (p.bigTime > 0) active.push(who + "🍄" + Math.ceil(p.bigTime));
+        if (p.doubleTime > 0) active.push(who + "💎" + Math.ceil(p.doubleTime));
+      }
+      if (active.length === 0) return;
+      pen.fillStyle = "#7df9ff";
+      pen.font = "bold 15px sans-serif";
+      pen.textAlign = "center";
+      pen.textBaseline = "top";
+      pen.fillText(active.join("   "), canvas.width / 2 + 40, 44);
+    }
+
     function draw() {
       pen.clearRect(0, 0, canvas.width, canvas.height);
+
+      // NEW: a golden glow during the bonus round
+      if (bonusTime > 0) {
+        pen.fillStyle = "rgba(255, 200, 60, " + (0.10 + 0.05 * Math.sin(clock * 6)) + ")";
+        pen.fillRect(0, 0, canvas.width, canvas.height);
+      }
 
       // --- the game world (this part shakes) ---
       pen.save();
@@ -469,11 +714,24 @@
         pen.translate((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12);
       }
 
+      // NEW: the shield is a glowing line near the ground (it blinks when it's about to run out)
+      if (shieldTime > 0 && (shieldTime > 2 || Math.sin(clock * 20) > 0)) {
+        pen.fillStyle = "rgba(125, 249, 255, " + (0.6 + 0.3 * Math.sin(clock * 10)) + ")";
+        pen.fillRect(0, canvas.height - 28, canvas.width, 5);
+      }
+
       pen.textAlign = "center";
       pen.textBaseline = "middle";
-      for (const star of stars) {
-        pen.font = star.size + "px sans-serif";
-        pen.fillText(starPicture, star.x, star.y);
+      for (const thing of falling) {
+        if (thing.kind === "power") {
+          // a glowing bubble so power-ups stand out
+          pen.fillStyle = "rgba(125, 249, 255, " + (0.25 + 0.15 * Math.sin(clock * 8)) + ")";
+          pen.beginPath();
+          pen.arc(thing.x, thing.y, thing.size * 0.75, 0, Math.PI * 2);
+          pen.fill();
+        }
+        pen.font = thing.size + "px sans-serif";
+        pen.fillText(thing.picture, thing.x, thing.y);
       }
 
       for (const s of sparkles) {
@@ -484,24 +742,44 @@
       pen.globalAlpha = 1;
 
       for (const p of activePlayers()) drawPaddle(p);
+
+      // floating words
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.font = "bold 20px sans-serif";
+      for (const word of popups) {
+        pen.globalAlpha = Math.max(0, word.life);
+        pen.fillStyle = word.color;
+        pen.fillText(word.text, word.x, word.y);
+      }
+      pen.globalAlpha = 1;
       pen.restore();
 
       // --- the scoreboard (this part stays still) ---
       drawScore(players[0], 16);
       if (playerCount === 2) drawScore(players[1], 44);
 
-      pen.fillStyle = "white";
       pen.font = "bold 20px sans-serif";
       pen.textAlign = "center";
       pen.textBaseline = "top";
-      pen.fillText("Level " + level, canvas.width / 2 + 40, 14);
+      if (bonusTime > 0) {
+        pen.fillStyle = "#ffd75e";
+        pen.fillText("BONUS " + Math.ceil(bonusTime), canvas.width / 2 + 40, 14);
+      } else {
+        pen.fillStyle = "white";
+        pen.fillText("Level " + level, canvas.width / 2 + 40, 14);
+      }
       pen.textAlign = "right";
       pen.fillText("❤️".repeat(lives), canvas.width - 16, 14);
       pen.font = "14px sans-serif";
       pen.fillStyle = "#aab";
       pen.fillText("Best: " + best, canvas.width - 16, 44);
 
+      drawActivePowerUps();
+
       // controls reminder
+      pen.font = "14px sans-serif";
+      pen.fillStyle = "#aab";
       pen.textAlign = "center";
       pen.textBaseline = "bottom";
       if (touchScreen) {
@@ -514,23 +792,25 @@
         );
       }
 
-      // "LEVEL UP!" that fades away
-      if (levelUpTimer > 0) {
-        pen.globalAlpha = Math.min(1, levelUpTimer);
+      // big message that fades away ("LEVEL 2!", "BONUS ROUND!")
+      if (bannerTimer > 0) {
+        pen.globalAlpha = Math.min(1, bannerTimer);
         pen.fillStyle = "#ffd75e";
-        pen.font = "bold 48px sans-serif";
+        pen.font = "bold 44px sans-serif";
+        pen.textAlign = "center";
         pen.textBaseline = "middle";
-        pen.fillText("LEVEL " + level + "!", canvas.width / 2, canvas.height / 2);
+        pen.fillText(bannerText, canvas.width / 2, canvas.height / 2);
         pen.globalAlpha = 1;
       }
 
       // screens for each game state
       if (gameState === "start") {
         drawMessage("STAR CATCHER",
-          ["Catch the stars. Miss 3 and it's over!",
+          ["Catch ⭐, grab power-ups, dodge 💣!",
            touchScreen ? "Drag your paddle with a finger" : "Player 1: A / D     Player 2: ← →",
            "Best score: " + best],
           "How many players?");
+        drawPowerUpGuide();
         drawButtons();
       }
       if (gameState === "paused") {
@@ -546,7 +826,7 @@
 
     // who won?
     function resultText() {
-      if (playerCount === 1) return "You caught " + players[0].score + " stars";
+      if (playerCount === 1) return "You scored " + players[0].score + " points";
       const p1 = players[0].score;
       const p2 = players[1].score;
       if (p1 > p2) return "Player 1 wins, " + p1 + " to " + p2 + "!";
