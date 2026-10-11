@@ -62,6 +62,8 @@
       box-sizing: border-box;
     }
     .name-form input:focus { outline: none; border-color: #ffd75e; }
+    .name-form .name-label { display: block; margin: 10px 0 4px; text-align: left; font-weight: bold; font-size: 14px; color: #cfd3ee; }
+    .name-form .name-error { margin: 10px 0 0; color: #ff8fc7; font-weight: bold; }
     .name-form .row { display: flex; gap: 8px; margin-top: 12px; }
     .name-form button {
       flex: 1;
@@ -72,7 +74,7 @@
     }
     .name-form .save { background: #ffd75e; color: #1d2340; border: 2px solid #ffd75e; }
     .name-form .skip { background: transparent; color: #fff; border: 2px solid #fff; }
-    .hidden { display: none; }
+    .hidden { display: none !important; }
     /* link back to the arcade's home page */
     .back {
       position: fixed;
@@ -92,15 +94,19 @@
   <div class="stage">
     <canvas id="game" width="480" height="600"></canvas>
 
-    <!-- NEW: shows up when someone makes the top 3 -->
+    <!-- NEW: asks for your name before you play -->
     <form class="name-form hidden" id="name-form" autocomplete="off">
-      <div class="trophy">🏆</div>
-      <h2 id="name-who">You made the top 3!</h2>
-      <p id="name-score"></p>
-      <input id="name-input" type="text" maxlength="12" placeholder="Your name" aria-label="Your name" spellcheck="false">
+      <div class="trophy">🙂</div>
+      <h2>What's your name?</h2>
+      <p>It goes on the scoreboard when you get a top score.</p>
+      <label class="name-label hidden" id="name-label-1" for="name-input-1">Player 1</label>
+      <input id="name-input-1" type="text" maxlength="12" placeholder="Your name" aria-label="Player 1 name" spellcheck="false">
+      <label class="name-label hidden" id="name-label-2" for="name-input-2">Player 2</label>
+      <input class="hidden" id="name-input-2" type="text" maxlength="12" placeholder="Player 2's name" aria-label="Player 2 name" spellcheck="false">
+      <p class="name-error hidden" id="name-error" role="alert"></p>
       <div class="row">
-        <button class="save" type="submit">Save</button>
-        <button class="skip" type="button" id="name-skip">Skip</button>
+        <button class="save" type="submit" id="name-go">Play ▶</button>
+        <button class="skip" type="button" id="name-cancel">Back</button>
       </div>
     </form>
   </div>
@@ -215,11 +221,13 @@
     function setDifficulty(name) {
       if (!DIFFICULTIES[name] || name === difficulty) return;
       difficulty = name;
-      highlightIndex = -1;
+      justAdded = [];
       newBest = false;
+      onlineNote = "";
       best = board().length ? board()[0].score : 0;
       try { localStorage.setItem("starCatcherDifficulty", difficulty); } catch (e) {}
       sounds.caught();
+      loadOnlineScores(name);          // NEW: get the latest scores for this difficulty
     }
 
     // ← and → step through easy, medium, hard
@@ -252,7 +260,7 @@
     // saved in the browser so they're still there tomorrow
     let scores = { easy: [], medium: [], hard: [] };   // like [{ name: "Jahan", score: 54 }], best first
     let names = ["", ""];          // the names Player 1 and Player 2 typed last time
-    let highlightIndex = -1;       // the score that was just added (shown in gold)
+    let justAdded = [];            // scores added at the end of the last game (shown in gold)
     let newBest = false;
 
     function cleanList(list) {
@@ -273,8 +281,76 @@
       }
     } catch (e) {}
 
-    // the top 3 for the difficulty that's picked right now
-    function board() { return scores[difficulty]; }
+    // ---------------------------------------------------------------
+    // NEW: THE SHARED ONLINE SCOREBOARD
+    // Scores are kept in a free Google Firebase database, so everyone who plays
+    // sees the same top 3. If the internet is down, this device's top 3 is shown instead.
+    // ---------------------------------------------------------------
+    const FIREBASE_PROJECT = "star-catcher-891e9";
+    const DATABASE = "projects/" + FIREBASE_PROJECT + "/databases/(default)/documents";
+    const DATABASE_URL = "https://firestore.googleapis.com/v1/" + DATABASE;
+    const MAX_ONLINE_SCORE = 5000;           // the database refuses anything bigger
+
+    let onlineScores = { easy: null, medium: null, hard: null };   // null = not loaded (yet)
+    let lastOnlineCheck = -999;              // when we last asked the database (in game seconds)
+    let checkingScores = false;              // true for a moment after game over
+    let onlineNote = "";                     // e.g. "Couldn't reach the online scoreboard"
+
+    // ask the database for the best scores on one difficulty
+    async function loadOnlineScores(name) {
+      try {
+        const response = await fetch(DATABASE_URL + "/leaderboards/" + name + ":runQuery", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ structuredQuery: {
+            from: [{ collectionId: "scores" }],
+            orderBy: [{ field: { fieldPath: "score" }, direction: "DESCENDING" }],
+            limit: 10
+          } })
+        });
+        if (!response.ok) throw new Error("status " + response.status);
+        const rows = await response.json();
+        onlineScores[name] = rows
+          .filter(function (row) { return row.document && row.document.fields; })
+          .map(function (row) {
+            const fields = row.document.fields;
+            return { name: fields.name ? fields.name.stringValue : "", score: Number(fields.score ? fields.score.integerValue : 0) };
+          })
+          .filter(function (entry) { return entry.name && isKidFriendly(entry.name); })   // skip unkind names
+          .slice(0, 3);
+      } catch (error) {
+        onlineScores[name] = null;           // fall back to this device's list
+      }
+      if (name === difficulty) best = board().length ? board()[0].score : 0;
+    }
+
+    // send one score to the database
+    async function sendOnlineScore(name, playerName, score) {
+      if (score > MAX_ONLINE_SCORE) return false;
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      try {
+        const response = await fetch(DATABASE_URL + ":commit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ writes: [{
+            update: {
+              name: DATABASE + "/leaderboards/" + name + "/scores/" + id,
+              fields: { name: { stringValue: playerName }, score: { integerValue: String(score) } }
+            },
+            updateTransforms: [{ fieldPath: "createdAt", setToServerValue: "REQUEST_TIME" }],
+            currentDocument: { exists: false }
+          }] })
+        });
+        return response.ok;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function isOnline() { return onlineScores[difficulty] !== null; }
+
+    // the top 3 for the difficulty that's picked right now: everyone's if we can, this device's if not
+    function board() { return isOnline() ? onlineScores[difficulty] : scores[difficulty]; }
 
     let best = board().length ? board()[0].score : 0;
 
@@ -291,56 +367,135 @@
       return score > 0 && (list.length < 3 || score > list[list.length - 1].score);
     }
 
-    function addScore(name, score) {
-      const entry = { name: name, score: score };
-      const list = board();
-      list.push(entry);
-      list.sort(function (a, b) { return b.score - a.score; });
-      scores[difficulty] = list.slice(0, 3);
-      highlightIndex = scores[difficulty].indexOf(entry);
-      if (highlightIndex === 0) newBest = true;
-      best = scores[difficulty][0].score;
-      saveLeaderboard();
+    function insertScore(list, entry) {
+      const longer = list.concat([entry]);
+      longer.sort(function (a, b) { return b.score - a.score; });
+      return longer.slice(0, 3);
     }
 
-    // NEW: after game over, ask each player who made the top 3 for their name
-    let waitingForNames = [];
-    let askingName = null;         // the player typing a name right now
-
-    function askNextName() {
-      while (waitingForNames.length > 0 && !madeTopThree(waitingForNames[0].score)) waitingForNames.shift();
-      askingName = waitingForNames.shift() || null;
-      const form = document.getElementById("name-form");
-      if (!askingName) {
-        form.classList.add("hidden");
-        return;
+    function addScore(name, score) {
+      const entry = { name: name, score: score };
+      const level = difficulty;
+      scores[level] = insertScore(scores[level], entry);       // this device's list
+      saveLeaderboard();
+      if (onlineScores[level]) {
+        onlineScores[level] = insertScore(onlineScores[level], entry);   // show it right away...
+        sendOnlineScore(level, name, score).then(function (saved) {      // ...then save it for everyone
+          if (!saved) onlineNote = "Couldn't save that score online.";
+          loadOnlineScores(level);
+        });
       }
-      const slot = players.indexOf(askingName);
-      document.getElementById("name-who").textContent =
-        playerCount === 2 ? askingName.name + " made the top 3!" : "You made the top 3!";
-      document.getElementById("name-score").textContent = askingName.score + " points";
-      const input = document.getElementById("name-input");
-      input.value = names[slot];
-      form.classList.remove("hidden");
-      input.focus();
-      input.select();
+      justAdded.push(entry);
+      if (board().indexOf(entry) === 0) newBest = true;
+      best = board()[0].score;
+    }
+
+    // was this score just added? (it stays gold even after the board reloads)
+    function isJustAdded(entry) {
+      return justAdded.some(function (j) { return j.name === entry.name && j.score === entry.score; });
+    }
+
+    // NEW: KID-FRIENDLY NAMES. Names with rude or mean words are turned away.
+    // Bits that aren't allowed anywhere in a name:
+    const BLOCKED_PARTS = ["fuck", "fuk", "shit", "bitch", "cunt", "dick", "cock", "pussy", "porn", "sex",
+      "nazi", "hitler", "penis", "vagina", "boob", "slut", "whore", "bastard", "nigg", "fag", "retard",
+      "piss", "wank", "twat", "horny", "nude", "naked", "kkk"];
+    // Whole words that aren't allowed (but are fine inside other words, like "glass" or "grape"):
+    const BLOCKED_WORDS = ["ass", "arse", "asshole", "rape", "hell", "damn", "crap", "suck", "sucks",
+      "stupid", "idiot", "dumb", "loser", "hate", "ugly", "fat", "weirdo"];
+    // Normal words that happen to contain a blocked bit:
+    const ALLOWED_PARTS = ["peacock", "cockatoo", "cockatiel", "cockroach", "hancock", "hitchcock",
+      "shuttlecock", "dickens", "essex", "sussex", "middlesex"];
+
+    function isKidFriendly(name) {
+      const lookAlikes = { "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "@": "a", "$": "s", "!": "i" };
+      const spaced = name.replace(/([a-z])([A-Z])/g, "$1 $2")            // "JahanIsDumb" -> "Jahan Is Dumb"
+        .toLowerCase()
+        .replace(/[0134578@$!]/g, function (c) { return lookAlikes[c]; });   // "5h1t" -> "shit"
+      let letters = spaced.replace(/[^a-z]/g, "");                         // "f.u.c.k" -> "fuck"
+      for (const ok of ALLOWED_PARTS) letters = letters.split(ok).join("");
+      const squashed = letters.replace(/(.)\1+/g, "$1");                   // "fuuuck" -> "fuck"
+      for (const part of BLOCKED_PARTS) {
+        if (letters.includes(part) || squashed.includes(part)) return false;
+      }
+      for (const word of spaced.split(/[^a-z]+/)) {
+        if (BLOCKED_WORDS.includes(word) || BLOCKED_WORDS.includes(word.replace(/(.)\1+/g, "$1"))) return false;
+      }
+      return true;
+    }
+
+    // ---------------------------------------------------------------
+    // NEW: PLAYER NAMES. Asked before your first game, then remembered.
+    // ---------------------------------------------------------------
+    let nameFormOpen = false;
+    let nameFormPlayers = 1;       // how many name boxes are showing (1 or 2)
+    let startAfterNames = false;   // start playing once the names are in?
+
+    function nameBox(n) { return document.getElementById("name-input-" + n); }
+
+    function openNameForm(count, thenStart) {
+      nameFormOpen = true;
+      nameFormPlayers = count;
+      startAfterNames = thenStart;
+      const two = count === 2;
+      document.getElementById("name-label-1").classList.toggle("hidden", !two);
+      document.getElementById("name-label-2").classList.toggle("hidden", !two);
+      nameBox(2).classList.toggle("hidden", !two);
+      nameBox(1).value = names[0];
+      nameBox(2).value = names[1];
+      document.getElementById("name-go").textContent = thenStart ? "Play ▶" : "Save";
+      document.getElementById("name-error").classList.add("hidden");
+      document.getElementById("name-form").classList.remove("hidden");
+      nameBox(1).focus();
+      nameBox(1).select();
+    }
+
+    function closeNameForm() {
+      nameFormOpen = false;
+      document.getElementById("name-form").classList.add("hidden");
+    }
+
+    function showNameError(message, n) {
+      const error = document.getElementById("name-error");
+      error.textContent = message;
+      error.classList.remove("hidden");
+      nameBox(n).focus();
+      nameBox(n).select();
     }
 
     document.getElementById("name-form").addEventListener("submit", function (event) {
       event.preventDefault();
-      if (!askingName) return;
-      const slot = players.indexOf(askingName);
-      const typed = document.getElementById("name-input").value.replace(/\s+/g, " ").trim().slice(0, 12);
-      const name = typed || askingName.name;
-      names[slot] = typed;
-      addScore(name, askingName.score);
-      sounds.levelUp();
-      askNextName();
+      const typed = [1, 2].map(function (n) { return nameBox(n).value.replace(/\s+/g, " ").trim().slice(0, 12); });
+      for (let i = 0; i < nameFormPlayers; i++) {
+        if (!typed[i]) {
+          return showNameError(nameFormPlayers === 2 ? "Player " + (i + 1) + " needs a name first." : "Type your name first.", i + 1);
+        }
+        if (!isKidFriendly(typed[i])) return showNameError("That name isn't kid-friendly. Try another one! 🙂", i + 1);
+      }
+      names[0] = typed[0];
+      if (nameFormPlayers === 2) names[1] = typed[1];
+      saveLeaderboard();
+      closeNameForm();
+      if (startAfterNames) startGame(nameFormPlayers);
     });
-    document.getElementById("name-skip").addEventListener("click", askNextName);
-    document.getElementById("name-input").addEventListener("keydown", function (event) {
-      if (event.key === "Escape") askNextName();
-    });
+    document.getElementById("name-cancel").addEventListener("click", closeNameForm);
+    for (const n of [1, 2]) {
+      nameBox(n).addEventListener("keydown", function (event) {
+        if (event.key === "Escape") closeNameForm();
+      });
+    }
+
+    // start a game, but ask for names first if we don't know them yet
+    function tryStart(count) {
+      if (!names[0] || (count === 2 && !names[1])) openNameForm(count, true);
+      else startGame(count);
+    }
+
+    // the name to show for a player ("Deep"), or "Player 1" if there isn't one
+    function displayName(p) {
+      const typed = names[players.indexOf(p)];
+      return typed || p.name;
+    }
 
     // only the players who are in this game
     function activePlayers() {
@@ -392,10 +547,23 @@
       gameState = "gameover";
       sounds.gameOver();
       newBest = false;
-      highlightIndex = -1;
-      // best score first, so the winner gets asked first
-      waitingForNames = activePlayers().slice().sort(function (a, b) { return b.score - a.score; });
-      askNextName();
+      justAdded = [];
+      onlineNote = "";
+      // best score first
+      const finished = activePlayers().slice().sort(function (a, b) { return b.score - a.score; });
+      // get the very latest online scores first, so we know who really made the top 3
+      checkingScores = true;
+      loadOnlineScores(difficulty).then(function () {
+        checkingScores = false;
+        lastOnlineCheck = clock;
+        if (gameState !== "gameover") return;
+        if (!isOnline()) onlineNote = "Couldn't reach the online scoreboard.";
+        // NEW: top-3 scores are saved under each player's name automatically
+        for (const p of finished) {
+          if (madeTopThree(p.score)) addScore(displayName(p), p.score);
+        }
+        if (justAdded.length > 0) sounds.levelUp();
+      });
     }
 
     // ---------------------------------------------------------------
@@ -450,16 +618,20 @@
 
     document.addEventListener("keydown", function (event) {
       // NEW: while typing a name, the keys are for the name, not the game
-      if (askingName || event.target.tagName === "INPUT") return;
+      if (nameFormOpen || checkingScores || event.target.tagName === "INPUT") return;
       keys[event.key] = true;
       if (event.key.startsWith("Arrow") || event.key === " ") event.preventDefault();
       startAudio();
 
       // on the start or game over screen: 1 or 2 picks the players, Space repeats
       if (gameState === "start" || gameState === "gameover") {
-        if (event.key === "1") startGame(1);
-        if (event.key === "2") startGame(2);
-        if (event.key === " ") startGame(playerCount);
+        if (event.key === "1") tryStart(1);
+        if (event.key === "2") tryStart(2);
+        if (event.key === " ") tryStart(playerCount);
+        if (event.key.toLowerCase() === "n") {           // NEW: N changes your name
+          event.preventDefault();
+          openNameForm(playerCount, false);
+        }
         if (event.key === "ArrowLeft") stepDifficulty(-1);     // NEW: pick easy, medium or hard
         if (event.key === "ArrowRight") stepDifficulty(1);
       }
@@ -514,6 +686,9 @@
       { name: "hard",   x: 312, y: 222, width: 120, height: 38 }
     ];
 
+    // NEW: the "Change name" button under the player buttons
+    const changeNameButton = { x: 160, y: 528, width: 160, height: 34 };
+
     // is the spot inside the box? (the same idea as star-and-paddle collision!)
     function inside(spot, box) {
       return spot.x > box.x && spot.x < box.x + box.width &&
@@ -522,7 +697,7 @@
 
     canvas.addEventListener("pointerdown", function (event) {
       startAudio();
-      if (askingName) return;         // finish typing your name first
+      if (nameFormOpen || checkingScores) return;   // finish typing your name first
       const spot = gameSpot(event);
 
       if (gameState === "start" || gameState === "gameover") {
@@ -530,7 +705,10 @@
           if (inside(spot, b)) setDifficulty(b.name);
         }
         for (const b of buttons) {
-          if (inside(spot, b)) startGame(b.players);
+          if (inside(spot, b)) tryStart(b.players);
+        }
+        if (inside(spot, changeNameButton)) {        // NEW: the "Change name" button
+          openNameForm(playerCount, false);
         }
         return;
       }
@@ -718,6 +896,13 @@
       if (shakeTime > 0) shakeTime -= dt;
       if (bannerTimer > 0) bannerTimer -= dt;
 
+      // NEW: on the menu screens, check for new online scores every 30 seconds
+      const onMenu = gameState === "start" || gameState === "gameover";
+      if (onMenu && !checkingScores && !nameFormOpen && clock - lastOnlineCheck > 30) {
+        lastOnlineCheck = clock;
+        loadOnlineScores(difficulty);
+      }
+
       if (gameState !== "playing") return;
 
       // NEW: power-up timers count down
@@ -898,17 +1083,20 @@
       pen.textAlign = "center";
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 17px sans-serif";
-      pen.fillText("🏆 TOP SCORES · " + settings().label + " 🏆", canvas.width / 2, top);
+      // 🌍 = everyone's scores, 📱 = only this device (when the internet is down)
+      pen.fillText((isOnline() ? "🌍 WORLD TOP 3 · " : "📱 TOP 3 ON THIS DEVICE · ") + settings().label, canvas.width / 2, top);
 
       const medals = ["🥇", "🥈", "🥉"];
       for (let i = 0; i < 3; i++) {
         const entry = board()[i];
         const y = top + 28 + i * 24;
-        const isNew = i === highlightIndex;
+        const isNew = entry && isJustAdded(entry);
         pen.font = (isNew ? "bold " : "") + "18px sans-serif";
         pen.fillStyle = isNew ? "#ffd75e" : (entry ? "white" : "#8a8fb0");
         pen.textAlign = "left";
-        pen.fillText(medals[i] + "  " + (entry ? entry.name : "-----"), 125, y);
+        // a name that isn't kid-friendly is never shown, even if it got saved somehow
+        const shownName = entry ? (isKidFriendly(entry.name) ? entry.name : "★★★") : "-----";
+        pen.fillText(medals[i] + "  " + shownName, 125, y);
         pen.textAlign = "right";
         pen.fillText(entry ? String(entry.score) : "", 355, y);
       }
@@ -936,6 +1124,25 @@
       pen.font = "bold 19px sans-serif";
       pen.fillText("How many players?", canvas.width / 2, 402);
       drawButtons();
+      drawPlayingAs();
+    }
+
+    // NEW: "Playing as Deep" and a button to change it
+    function drawPlayingAs() {
+      if (!names[0]) return;           // no name yet: we'll ask when you press play
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "16px sans-serif";
+      const who = playerCount === 2 && names[1] ? names[0] + " & " + names[1] : names[0];
+      pen.fillText("👤 Playing as " + who, canvas.width / 2, 506);
+      const b = changeNameButton;
+      pen.strokeStyle = "#8a8fb0";
+      pen.lineWidth = 2;
+      pen.strokeRect(b.x, b.y, b.width, b.height);
+      pen.fillStyle = "#cfd3ee";
+      pen.font = "bold 15px sans-serif";
+      pen.fillText("✏️ Change name", b.x + b.width / 2, b.y + b.height / 2 + 1);
     }
 
     function drawGameOverScreen() {
@@ -947,19 +1154,30 @@
       pen.fillText("GAME OVER", canvas.width / 2, 128);
       pen.font = "20px sans-serif";
       pen.fillText(resultText(), canvas.width / 2, 168);
-      if (newBest || highlightIndex >= 0) {
+      if (justAdded.length > 0) {
+        // NEW: say who made it, e.g. "Deep made the top 3!"
+        const who = justAdded.map(function (e) { return e.name; }).join(" & ");
         pen.fillStyle = "#ffd75e";
         pen.font = "bold 20px sans-serif";
-        pen.fillText(newBest ? "NEW HIGH SCORE!" : "You made the top 3!", canvas.width / 2, 196);
+        pen.fillText(newBest ? "🏆 NEW HIGH SCORE, " + justAdded[0].name + "!" : "🏆 " + who + " made the top 3!", canvas.width / 2, 196);
       }
       drawDifficultyButtons();
       drawLeaderboard(290);
-      if (!askingName) {                // buttons come back once names are typed
+      if (onlineNote) {
         pen.textAlign = "center";
-        pen.fillStyle = "#ffd75e";
-        pen.font = "bold 19px sans-serif";
+        pen.fillStyle = "#ff8fc7";
+        pen.font = "13px sans-serif";
+        pen.fillText(onlineNote + " Saved on this device.", canvas.width / 2, 386);
+      }
+      pen.textAlign = "center";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 19px sans-serif";
+      if (checkingScores) {
+        pen.fillText("Checking the scoreboard…", canvas.width / 2, 402);
+      } else {
         pen.fillText("Play again?", canvas.width / 2, 402);
         drawButtons();
+        drawPlayingAs();
       }
     }
 
@@ -992,7 +1210,7 @@
       pen.font = "bold 20px sans-serif";
       pen.textAlign = "left";
       pen.textBaseline = "top";
-      pen.fillText(p.name + ": " + p.score, 40, y - 2);
+      pen.fillText(displayName(p) + ": " + p.score, 40, y - 2);
     }
 
     // NEW: the power-ups that are on right now, with seconds left
@@ -1056,7 +1274,10 @@
       }
       pen.globalAlpha = 1;
 
-      for (const p of activePlayers()) drawPaddle(p);
+      // paddles only during a game (the menus use that space for buttons)
+      if (gameState === "playing" || gameState === "paused") {
+        for (const p of activePlayers()) drawPaddle(p);
+      }
 
       // floating words
       pen.textAlign = "center";
@@ -1100,7 +1321,7 @@
       if (touchScreen) {
         pen.fillText("Drag your paddle with a finger", canvas.width / 2, canvas.height - 6);
       } else if (gameState === "start" || gameState === "gameover") {
-        pen.fillText("← → difficulty    1 / 2: players    P1: A / D    P2: ← →", canvas.width / 2, canvas.height - 6);
+        pen.fillText("← → difficulty    1 / 2: players    N: change name", canvas.width / 2, canvas.height - 6);
       } else {
         pen.fillText(
           (playerCount === 2 ? "P1: A / D    P2: ← →" : "← → or A / D, or drag") +
@@ -1133,8 +1354,8 @@
       if (playerCount === 1) return "You scored " + players[0].score + " points";
       const p1 = players[0].score;
       const p2 = players[1].score;
-      if (p1 > p2) return "Player 1 wins, " + p1 + " to " + p2 + "!";
-      if (p2 > p1) return "Player 2 wins, " + p2 + " to " + p1 + "!";
+      if (p1 > p2) return displayName(players[0]) + " wins, " + p1 + " to " + p2 + "!";
+      if (p2 > p1) return displayName(players[1]) + " wins, " + p2 + " to " + p1 + "!";
       return "It's a tie, " + p1 + " to " + p2 + "!";
     }
 
@@ -1151,6 +1372,10 @@
       draw();
       requestAnimationFrame(loop);
     }
+
+    // NEW: fetch everyone's top scores for all three difficulties
+    for (const name of DIFFICULTY_ORDER) loadOnlineScores(name);
+    lastOnlineCheck = 0;
 
     requestAnimationFrame(loop);
   </script>
