@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Website editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --sky: #12152b;
+      --panel: #1d2340;
+      --text: #f2f3fa;
+      --muted: #a9aecb;
+      --faint: rgba(255, 255, 255, 0.14);
+      --yellow: #ffd75e;
+      --pink: #ff8fc7;
+      --line: #ffffff;
+      --shadow: #000000;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--sky);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    a { color: var(--yellow); }
+
+    .wrap { max-width: 780px; margin: 0 auto; padding: 28px 16px 120px; }
+
+    .pixel { font-family: "Press Start 2P", monospace; }
+    .emoji { font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
+    .hidden { display: none !important; }
+
+    /* ---------- top bar ---------- */
+    .top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+    .top h1 {
+      flex: 1 1 260px;
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--yellow);
+      overflow-wrap: anywhere;
+    }
+    .connect-title { font-size: 18px; color: var(--yellow); margin: 8px 0 22px; text-align: center; line-height: 1.6; }
+
+    /* ---------- tabs ---------- */
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .tab {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 12px 4px;
+      background: var(--panel);
+      color: var(--text);
+      border: 2px solid var(--line);
+      border-radius: 6px;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .tab .icon { font-size: 26px; line-height: 1.2; }
+    .tab:hover { background: #252c52; }
+    .tab[aria-selected="true"] { background: var(--yellow); color: var(--sky); border-color: var(--yellow); }
+
+    /* ---------- cards and forms ---------- */
+    .card {
+      padding: 24px;
+      background: var(--panel);
+      border: 3px solid var(--line);
+      border-radius: 6px;
+      box-shadow: 6px 6px 0 var(--shadow);
+    }
+    .card h2 { margin: 0 0 4px; font-size: 24px; }
+    .card h3 { margin: 26px 0 6px; font-size: 18px; }
+    .hint { color: var(--muted); margin: 0 0 8px; }
+
+    label { display: block; font-weight: 700; margin: 18px 0 6px; }
+    .optional { color: var(--muted); font-weight: 400; }
+
+    input[type="text"], input[type="password"], textarea {
+      width: 100%;
+      padding: 12px;
+      background: var(--sky);
+      color: var(--text);
+      border: 2px solid var(--muted);
+      border-radius: 4px;
+      font: inherit;
+      font-size: 16px;
+    }
+    input[type="text"]:focus, input[type="password"]:focus, textarea:focus { outline: none; border-color: var(--yellow); }
+    textarea { min-height: 170px; resize: vertical; }
+    textarea.short { min-height: 90px; }
+    .emoji-input { max-width: 120px; font-size: 26px !important; text-align: center; }
+
+    .check { display: flex; align-items: center; gap: 10px; font-weight: 400; }
+    .check input { width: 20px; height: 20px; }
+
+    .file-drop {
+      position: relative;
+      display: block;
+      margin-top: 6px;
+      padding: 22px;
+      text-align: center;
+      color: var(--muted);
+      font-weight: 700;
+      border: 2px dashed var(--muted);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .file-drop:hover, .file-drop:focus-within { border-color: var(--yellow); color: var(--text); }
+    .sr { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+
+    .preview { margin-top: 12px; }
+    .preview img {
+      display: block;
+      max-width: 100%;
+      max-height: 280px;
+      margin-bottom: 10px;
+      border: 2px solid var(--line);
+      border-radius: 4px;
+    }
+    .preview.round img { width: 120px; height: 120px; object-fit: cover; border-radius: 50%; }
+
+    .btn {
+      padding: 12px 20px;
+      background: transparent;
+      color: var(--text);
+      border: 2px solid var(--line);
+      border-radius: 4px;
+      font: inherit;
+      font-weight: 800;
+      text-decoration: none;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn:hover { background: #252c52; }
+    .btn-main { background: var(--yellow); color: var(--sky); border-color: var(--yellow); }
+    .btn-main:hover { background: #ffe38c; }
+    .btn-danger { color: var(--pink); border-color: var(--pink); }
+    .btn-small { padding: 7px 12px; font-size: 14px; }
+    .btn:disabled { opacity: 0.6; cursor: wait; }
+
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 24px; }
+
+    .note {
+      margin: 18px 0 0;
+      padding: 10px 14px;
+      background: var(--sky);
+      border-left: 4px solid var(--yellow);
+      border-radius: 4px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .emoji-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .emoji-row button {
+      width: 44px;
+      height: 44px;
+      font-size: 22px;
+      background: var(--sky);
+      border: 2px solid var(--faint);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .emoji-row button:hover { border-color: var(--yellow); }
+
+    /* chosen photos */
+    .photo-list { display: grid; gap: 12px; margin-top: 14px; }
+    .photo-row { display: flex; align-items: center; gap: 12px; }
+    .photo-row img { flex: none; width: 72px; height: 72px; object-fit: cover; border: 2px solid var(--line); border-radius: 4px; }
+    .icon-btn {
+      flex: none;
+      width: 44px;
+      height: 44px;
+      background: transparent;
+      color: var(--pink);
+      border: 2px solid var(--pink);
+      border-radius: 4px;
+      font-size: 18px;
+      cursor: pointer;
+    }
+
+    /* manage lists */
+    .item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--faint); }
+    .item:last-child { border-bottom: 0; }
+    .thumb {
+      flex: none;
+      width: 52px;
+      height: 52px;
+      display: grid;
+      place-items: center;
+      font-size: 28px;
+      background: var(--sky);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .info { flex: 1; min-width: 0; }
+    .info b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .info small { color: var(--muted); }
+
+    details { margin-top: 22px; }
+    details summary { cursor: pointer; font-weight: 700; color: var(--yellow); }
+    details ol { padding-left: 22px; }
+    details li { margin-bottom: 6px; }
+
+    /* message bubble at the bottom */
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 20px;
+      z-index: 10;
+      width: max-content;
+      max-width: calc(100% - 32px);
+      transform: translateX(-50%);
+      padding: 14px 18px;
+      border: 3px solid var(--shadow);
+      border-radius: 6px;
+      box-shadow: 4px 4px 0 var(--shadow);
+      font-weight: 700;
+    }
+    .toast.ok { background: var(--yellow); color: var(--sky); }
+    .toast.bad { background: var(--pink); color: var(--sky); }
+    .toast a { color: inherit; margin-left: 6px; }
+
+    @media (max-width: 600px) {
+      .tabs { grid-template-columns: repeat(3, 1fr); }
+      .card { padding: 18px; }
+      .item { flex-wrap: wrap; }
+      .info { flex-basis: calc(100% - 64px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+
+    <!-- ===================== CONNECT ===================== -->
+    <section id="connect-screen" class="hidden">
+      <h1 class="pixel connect-title"><span class="emoji">✏️</span> Website editor</h1>
+      <div class="card">
+        <h2>Connect to GitHub</h2>
+        <p class="hint">To publish to your website, the editor needs a GitHub key called a <b>token</b>. A grown-up sets this up once.</p>
+
+        <label for="c-owner">GitHub username</label>
+        <input id="c-owner" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+
+        <label for="c-repo">Website repository</label>
+        <input id="c-repo" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="username.github.io">
+
+        <label for="c-token">Token</label>
+        <input id="c-token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…">
+
+        <label class="check"><input id="c-remember" type="checkbox"> Remember on this device</label>
+
+        <div class="actions">
+          <button class="btn btn-main" id="c-go" type="button">Connect</button>
+        </div>
+
+        <details>
+          <summary>How do I get a token?</summary>
+          <ol>
+            <li>Sign in to GitHub with the website's account.</li>
+            <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">New fine-grained token</a> (Settings → Developer settings → Personal access tokens → Fine-grained tokens).</li>
+            <li><b>Token name:</b> Website editor. <b>Expiration:</b> pick a date up to a year away.</li>
+            <li><b>Repository access:</b> Only select repositories → choose the website repository.</li>
+            <li><b>Permissions:</b> add <b>Contents</b> and set it to <b>Read and write</b>.</li>
+            <li>Click <b>Generate token</b>, copy it, and paste it above.</li>
+          </ol>
+          <p class="note">Treat the token like a password: don't share it or post it anywhere. Only tick "Remember" on your own device. If it's ever lost, delete it on that same GitHub page and make a new one.</p>
+        </details>
+      </div>
+    </section>
+
+    <!-- ===================== EDITOR ===================== -->
+    <section id="editor" class="hidden">
+      <header class="top">
+        <h1 class="pixel" id="site-title">Editor</h1>
+        <a class="btn btn-small" id="view-site" href="index.html" target="_blank" rel="noopener">View site ↗</a>
+        <button class="btn btn-small" id="sign-out" type="button">Sign out</button>
+      </header>
+
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" type="button" data-panel="p-message"><span class="icon">✍️</span>Message</button>
+        <button class="tab" role="tab" type="button" data-panel="p-photos"><span class="icon">📷</span>Photos</button>
+        <button class="tab" role="tab" type="button" data-panel="p-game"><span class="icon">🎮</span>Game</button>
+        <button class="tab" role="tab" type="button" data-panel="p-about"><span class="icon">🙂</span>About me</button>
+        <button class="tab" role="tab" type="button" data-panel="p-manage"><span class="icon">🗂️</span>Manage</button>
+      </div>
+
+      <!-- ---------- write a message ---------- -->
+      <div class="card panel" id="p-message">
+        <h2 id="m-heading">Write a message</h2>
+        <p class="hint">Share news, a new high score, or what you're working on.</p>
+
+        <label for="m-title">Title <span class="optional">(optional)</span></label>
+        <input id="m-title" type="text" maxlength="100">
+
+        <label for="m-text">Message</label>
+        <textarea id="m-text" maxlength="5000"></textarea>
+
+        <label>Picture <span class="optional">(optional)</span></label>
+        <label class="file-drop" id="m-drop">📷 Choose a picture<input id="m-file" class="sr" type="file" accept="image/*"></label>
+        <div class="preview hidden" id="m-picture">
+          <img id="m-preview" alt="">
+          <button class="btn btn-small" id="m-remove-pic" type="button">Remove picture</button>
+        </div>
+
+        <div class="actions">
+          <button class="btn btn-main" id="m-publish" type="button">Publish message</button>
+          <button class="btn hidden" id="m-cancel" type="button">Cancel editing</button>
+        </div>
+      </div>
+
+      <!-- ---------- add photos ---------- -->
+      <div class="card panel hidden" id="p-photos">
+        <h2>Add photos</h2>
+        <p class="hint">Pick one or more pictures and give each a caption. Big pictures are shrunk automatically, and hidden location info is removed.</p>
+
+        <label class="file-drop">📷 Choose pictures<input id="ph-files" class="sr" type="file" accept="image/*" multiple></label>
+        <div class="photo-list" id="ph-list"></div>
+
+        <div class="actions">
+          <button class="btn btn-main" id="ph-publish" type="button" disabled>Publish photos</button>
+        </div>
+      </div>
+
+      <!-- ---------- add a game ---------- -->
+      <div class="card panel hidden" id="p-game">
+        <h2>Add a game</h2>
+        <p class="hint">Upload a game you made: one .html file, or all the files from a Godot web export.</p>
+
+        <label for="g-title">Game name</label>
+        <input id="g-title" type="text" maxlength="60">
+
+        <label for="g-emoji">Picture for the game card</label>
+        <input id="g-emoji" class="emoji-input" type="text" maxlength="8" value="🎮">
+        <div class="emoji-row" data-target="g-emoji"></div>
+
+        <label for="g-about">What's the game about?</label>
+        <textarea id="g-about" class="short" maxlength="300"></textarea>
+
+        <label>Game file(s)</label>
+        <label class="file-drop">🎮 Choose the game file(s)<input id="g-files" class="sr" type="file" multiple></label>
+        <p class="hint" id="g-chosen" style="margin-top: 8px"></p>
+
+        <p class="note">Only upload games you or your friends made, never something downloaded from another website.</p>
+
+        <div class="actions">
+          <button class="btn btn-main" id="g-publish" type="button">Publish game</button>
+        </div>
+      </div>
+
+      <!-- ---------- about me ---------- -->
+      <div class="card panel hidden" id="p-about">
+        <h2>About me</h2>
+        <p class="hint">Change your website's name, the line under it, your picture and your About me text.</p>
+
+        <label for="a-name">Website name</label>
+        <input id="a-name" type="text" maxlength="40">
+
+        <label for="a-tagline">Line under the name</label>
+        <input id="a-tagline" type="text" maxlength="100">
+
+        <label for="a-about">About me</label>
+        <textarea id="a-about" maxlength="1000"></textarea>
+
+        <label for="a-emoji">Profile picture: an emoji…</label>
+        <input id="a-emoji" class="emoji-input" type="text" maxlength="8">
+        <div class="emoji-row" data-target="a-emoji"></div>
+
+        <label>…or a picture <span class="optional">(optional, shown instead of the emoji)</span></label>
+        <label class="file-drop">🖼️ Choose a profile picture<input id="a-file" class="sr" type="file" accept="image/*"></label>
+        <div class="preview round hidden" id="a-photo">
+          <img id="a-preview" alt="">
+          <button class="btn btn-small" id="a-remove-photo" type="button">Use the emoji instead</button>
+        </div>
+
+        <p class="note">Tip: a drawing, cartoon or game character is safer than a real photo of your face.</p>
+
+        <div class="actions">
+          <button class="btn btn-main" id="a-save" type="button">Save</button>
+        </div>
+      </div>
+
+      <!-- ---------- manage ---------- -->
+      <div class="card panel hidden" id="p-manage">
+        <h2>Manage</h2>
+        <p class="hint">Edit or delete things on your website.</p>
+
+        <h3>🎮 Games</h3>
+        <div id="list-games"></div>
+
+        <h3>✍️ Messages</h3>
+        <div id="list-posts"></div>
+
+        <h3>📷 Photos</h3>
+        <div id="list-photos"></div>
+
+        <p class="note">Deleting takes things off your website, but GitHub keeps an old copy in the website's history. Think before you post.</p>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const DATA_PATH = "content/data.js";
+    const EMOJI = ["⭐", "🚀", "👾", "🎮", "🏎️", "⚽", "🐉", "🧩", "🎯", "🦖", "🍕", "🐱", "🤖", "🏆", "🔥", "💎"];
+
+    let conn = null;   // { owner, repo, token }
+    let site = null;   // the website's content (same shape as content/data.js)
+
+    // =====================================================================
+    //  Small helpers
+    // =====================================================================
+    function $(id) { return document.getElementById(id); }
+
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    function today() {
+      const d = new Date();
+      return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    }
+
+    function niceDate(isoDate) {
+      if (!isoDate) return "";
+      const p = isoDate.split("-").map(Number);
+      return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    }
+
+    function newestFirst(list) {
+      return list.slice().sort(function (a, b) { return (b.date || "").localeCompare(a.date || ""); });
+    }
+
+    function makeId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+    function slugify(text) {
+      return text.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "game";
+    }
+
+    function megabytes(bytes) { return (bytes / 1e6).toFixed(bytes < 1e6 ? 2 : 1) + " MB"; }
+
+    function siteUrl() {
+      const userSite = (conn.owner + ".github.io").toLowerCase();
+      return "https://" + conn.owner.toLowerCase() + ".github.io/" +
+        (conn.repo.toLowerCase() === userSite ? "" : conn.repo + "/");
+    }
+
+    // pictures straight from GitHub, so new ones show before the website updates
+    function fileUrl(path) {
+      if (!path) return "";
+      return "https://raw.githubusercontent.com/" + conn.owner + "/" + conn.repo + "/HEAD/" +
+        path.split("/").map(encodeURIComponent).join("/");
+    }
+
+    let toastTimer = null;
+    function toast(message, kind, withSiteLink) {
+      const box = $("toast");
+      box.textContent = message;
+      if (withSiteLink) {
+        const link = el("a", "", "View site ↗");
+        link.href = siteUrl();
+        link.target = "_blank";
+        link.rel = "noopener";
+        box.append(link);
+      }
+      box.className = "toast " + (kind || "ok");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { box.classList.add("hidden"); }, kind === "bad" ? 10000 : 7000);
+    }
+
+    function warn(message, focusId) {
+      toast(message, "bad");
+      if (focusId) $(focusId).focus();
+    }
+
+    // Runs a job while a button shows "busy". Returns true if it worked.
+    let busyJobs = 0;
+    async function busy(button, label, job) {
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = label;
+      busyJobs++;
+      try {
+        await job(function (text) { button.textContent = text; });
+        return true;
+      } catch (error) {
+        console.error(error);
+        toast(friendlyError(error), "bad");
+        return false;
+      } finally {
+        busyJobs--;
+        button.disabled = false;
+        button.textContent = original;
+      }
+    }
+
+    window.addEventListener("beforeunload", function (event) {
+      if (busyJobs > 0) { event.preventDefault(); event.returnValue = ""; }
+    });
+
+    // ---------- text and files <-> base64 (GitHub wants base64) ----------
+    function bytesToBase64(bytes) {
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      }
+      return btoa(binary);
+    }
+    function textToBase64(text) { return bytesToBase64(new TextEncoder().encode(text)); }
+    function base64ToText(base64) {
+      const binary = atob(base64.replace(/\s/g, ""));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new TextDecoder().decode(bytes);
+    }
+    async function blobToBase64(blob) { return bytesToBase64(new Uint8Array(await blob.arrayBuffer())); }
+
+    // =====================================================================
+    //  Talking to GitHub
+    // =====================================================================
+    class GitHubError extends Error {
+      constructor(status, message) { super(message); this.status = status; }
+    }
+
+    async function github(method, path, body, accept) {
+      const url = "https://api.github.com/repos/" + encodeURIComponent(conn.owner) + "/" +
+        encodeURIComponent(conn.repo) + "/contents/" + path.split("/").map(encodeURIComponent).join("/");
+      const headers = {
+        "Accept": accept || "application/vnd.github+json",
+        "Authorization": "Bearer " + conn.token,
+        "X-GitHub-Api-Version": "2022-11-28"
+      };
+      if (body) headers["Content-Type"] = "application/json";
+
+      let response;
+      try {
+        response = await fetch(url, { method: method, headers: headers, body: body ? JSON.stringify(body) : undefined, cache: "no-store" });
+      } catch (error) {
+        throw new GitHubError(0, "network");
+      }
+      if (method === "GET" && response.status === 404) return null;
+      const result = await response.json().catch(function () { return {}; });
+      if (!response.ok) throw new GitHubError(response.status, result.message || "");
+      return result;
+    }
+
+    function friendlyError(error) {
+      if (error instanceof GitHubError) {
+        if (error.status === 0) return "Couldn't reach GitHub. Check the internet connection and try again.";
+        if (error.status === 401) return "GitHub didn't accept the token. It may be mistyped or expired. Sign out and connect again.";
+        if (error.status === 403) return "GitHub said no. The token needs “Contents: Read and write” for this repository. (Or GitHub is busy: wait a minute and try again.)";
+        if (error.status === 404) return "GitHub couldn't find the website. Check the username and repository name, and that the token can use this repository.";
+        if (error.status === 413) return "That file is too big for GitHub.";
+        return "GitHub error " + error.status + (error.message ? ": " + error.message : "");
+      }
+      return error.message || String(error);
+    }
+
+    // read content/data.js from GitHub
+    async function loadSite() {
+      const file = await github("GET", DATA_PATH);
+      if (!file) throw new Error("Connected, but the website's content file (content/data.js) isn't there. Upload the whole website folder to GitHub first.");
+      const text = base64ToText(file.content || "");
+      const start = text.indexOf("{", text.indexOf("window.SITE"));
+      const end = text.lastIndexOf("}");
+      let data;
+      try {
+        data = JSON.parse(text.slice(start, end + 1));
+      } catch (error) {
+        throw new Error("content/data.js has a typo, so the editor can't read it. Check its commas and quotes.");
+      }
+      data.profile = data.profile || {};
+      data.games = data.games || [];
+      data.posts = data.posts || [];
+      data.photos = data.photos || [];
+      return { data: data, sha: file.sha };
+    }
+
+    function dataFileText(data) {
+      return "// Everything on the website comes from this file.\n" +
+        "// The editor (admin.html) updates it for you, so you don't need to touch it.\n" +
+        "// Editing by hand? Keep the quotes and commas exactly right.\n" +
+        "window.SITE = " + JSON.stringify(data, null, 2) + ";\n";
+    }
+
+    // load the newest content, change it, save it (tries again if it changed meanwhile)
+    async function changeSite(change, message) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const loaded = await loadSite();
+        change(loaded.data);
+        try {
+          await github("PUT", DATA_PATH, { message: message, content: textToBase64(dataFileText(loaded.data)), sha: loaded.sha });
+          site = loaded.data;
+          refreshEditor();
+          return;
+        } catch (error) {
+          if (attempt < 3 && (error.status === 409 || error.status === 422)) continue;
+          throw error;
+        }
+      }
+    }
+
+    async function uploadFile(path, base64, message) {
+      try {
+        await github("PUT", path, { message: message, content: base64 });
+      } catch (error) {
+        if (error.status !== 422) throw error;          // 422: a file with that name is already there
+        const existing = await github("GET", path, null, "application/vnd.github.object");
+        await github("PUT", path, { message: message, content: base64, sha: existing.sha });
+      }
+    }
+
+    async function deleteFile(path, message) {
+      const existing = await github("GET", path, null, "application/vnd.github.object");
+      if (!existing || !existing.sha) return;
+      await github("DELETE", path, { message: message, sha: existing.sha });
+    }
+
+    // shrink a picture and re-save it as JPG (this also strips hidden location info)
+    async function shrinkImage(file, maxSize) {
+      if (file.type === "image/gif" && file.size < 8e6) return { blob: file, ext: "gif" };
+      let image;
+      try {
+        image = await createImageBitmap(file);
+      } catch (error) {
+        throw new Error("“" + file.name + "” is a picture type the browser can't open. Try a JPG or PNG.");
+      }
+      const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(image.width * scale);
+      canvas.height = Math.round(image.height * scale);
+      const pen = canvas.getContext("2d");
+      pen.fillStyle = "#ffffff";
+      pen.fillRect(0, 0, canvas.width, canvas.height);
+      pen.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/jpeg", 0.85); });
+      return { blob: blob, ext: "jpg" };
+    }
+
+    async function uploadImage(file, maxSize) {
+      const picture = await shrinkImage(file, maxSize || 1600);
+      const path = "photos/" + today() + "-" + Math.random().toString(36).slice(2, 8) + "." + picture.ext;
+      await uploadFile(path, await blobToBase64(picture.blob), "Add picture");
+      return path;
+    }
+
+    // =====================================================================
+    //  Connect and sign out
+    // =====================================================================
+    function savedConnection() {
+      for (const store of [sessionStorage, localStorage]) {
+        try {
+          const saved = JSON.parse(store.getItem("editor-connection") || "null");
+          if (saved && saved.token) return saved;
+        } catch (error) {}
+      }
+      return null;
+    }
+
+    function showConnect(previous) {
+      // fill in the username and repository: from last time, or from the web address
+      const host = location.hostname.toLowerCase();
+      if (previous) {
+        $("c-owner").value = previous.owner || "";
+        $("c-repo").value = previous.repo || "";
+      } else if (host.endsWith(".github.io")) {
+        const owner = host.slice(0, -".github.io".length);
+        const firstFolder = location.pathname.split("/").filter(Boolean)[0];
+        $("c-owner").value = owner;
+        $("c-repo").value = firstFolder && !firstFolder.endsWith(".html") ? firstFolder : host;
+      }
+      $("connect-screen").classList.remove("hidden");
+      $("editor").classList.add("hidden");
+    }
+
+    $("c-owner").addEventListener("input", function () {
+      if (!$("c-repo").dataset.touched) $("c-repo").value = $("c-owner").value.trim() ? $("c-owner").value.trim() + ".github.io" : "";
+    });
+    $("c-repo").addEventListener("input", function () { $("c-repo").dataset.touched = "yes"; });
+
+    $("c-go").onclick = async function () {
+      const candidate = { owner: $("c-owner").value.trim(), repo: $("c-repo").value.trim(), token: $("c-token").value.trim() };
+      if (!candidate.owner) return warn("Type the GitHub username.", "c-owner");
+      if (!candidate.repo) return warn("Type the website repository name.", "c-repo");
+      if (!candidate.token) return warn("Paste the token.", "c-token");
+      const remember = $("c-remember").checked;
+
+      await busy($("c-go"), "Connecting…", async function () {
+        conn = candidate;
+        try {
+          site = (await loadSite()).data;
+        } catch (error) {
+          conn = null;
+          throw error;
+        }
+        try {
+          (remember ? localStorage : sessionStorage).setItem("editor-connection", JSON.stringify(candidate));
+        } catch (error) {}
+        $("c-token").value = "";
+        openEditor();
+      });
+    };
+
+    $("sign-out").onclick = function () {
+      try { sessionStorage.removeItem("editor-connection"); } catch (error) {}
+      try { localStorage.removeItem("editor-connection"); } catch (error) {}
+      location.reload();
+    };
+
+    // =====================================================================
+    //  The editor
+    // =====================================================================
+    function openEditor() {
+      $("connect-screen").classList.add("hidden");
+      $("editor").classList.remove("hidden");
+      $("view-site").href = siteUrl();
+      fillAboutForm();
+      loadDraft();
+      refreshEditor();
+      let tab = "p-message";
+      try { tab = sessionStorage.getItem("editor-tab") || tab; } catch (error) {}
+      showPanel(tab);
+    }
+
+    function refreshEditor() {
+      const heading = $("site-title");
+      heading.textContent = "";
+      heading.append(el("span", "emoji", "✏️ "), site.profile.name || "My website");
+      drawManage();
+    }
+
+    function showPanel(id) {
+      if (!$(id)) id = "p-message";
+      for (const tab of document.querySelectorAll(".tab")) {
+        tab.setAttribute("aria-selected", tab.dataset.panel === id ? "true" : "false");
+      }
+      for (const panel of document.querySelectorAll(".panel")) panel.classList.toggle("hidden", panel.id !== id);
+      try { sessionStorage.setItem("editor-tab", id); } catch (error) {}
+    }
+
+    for (const tab of document.querySelectorAll(".tab")) {
+      tab.onclick = function () { showPanel(tab.dataset.panel); };
+    }
+
+    for (const row of document.querySelectorAll(".emoji-row")) {
+      for (const emoji of EMOJI) {
+        const button = el("button", "", emoji);
+        button.type = "button";
+        button.setAttribute("aria-label", "Use " + emoji);
+        button.onclick = function () { $(row.dataset.target).value = emoji; };
+        row.append(button);
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    //  Messages
+    // ---------------------------------------------------------------------
+    let messagePicture = null;    // a new picture picked for this message
+    let keepOldPicture = true;    // when editing: keep the picture it already had?
+    let editingPostId = null;     // set while editing an older message
+
+    function showMessagePicture(src) {
+      $("m-preview").src = src;
+      $("m-picture").classList.remove("hidden");
+      $("m-drop").classList.add("hidden");
+    }
+
+    function clearMessagePicture() {
+      messagePicture = null;
+      keepOldPicture = false;
+      $("m-preview").removeAttribute("src");
+      $("m-picture").classList.add("hidden");
+      $("m-drop").classList.remove("hidden");
+    }
+
+    $("m-file").onchange = function () {
+      const file = $("m-file").files[0];
+      $("m-file").value = "";
+      if (!file) return;
+      messagePicture = file;
+      showMessagePicture(URL.createObjectURL(file));
+    };
+    $("m-remove-pic").onclick = clearMessagePicture;
+
+    // keep unfinished messages, in case the page is closed by accident
+    function saveDraft() {
+      if (editingPostId) return;
+      try { localStorage.setItem("editor-draft", JSON.stringify({ title: $("m-title").value, text: $("m-text").value })); } catch (error) {}
+    }
+    function loadDraft() {
+      try {
+        const draft = JSON.parse(localStorage.getItem("editor-draft") || "null");
+        if (draft) { $("m-title").value = draft.title || ""; $("m-text").value = draft.text || ""; }
+      } catch (error) {}
+    }
+    function clearDraft() { try { localStorage.removeItem("editor-draft"); } catch (error) {} }
+    $("m-title").addEventListener("input", saveDraft);
+    $("m-text").addEventListener("input", saveDraft);
+
+    function resetMessageForm() {
+      editingPostId = null;
+      $("m-title").value = "";
+      $("m-text").value = "";
+      clearMessagePicture();
+      keepOldPicture = true;
+      $("m-heading").textContent = "Write a message";
+      $("m-publish").textContent = "Publish message";
+      $("m-cancel").classList.add("hidden");
+    }
+
+    function startEditing(post) {
+      editingPostId = post.id;
+      $("m-title").value = post.title || "";
+      $("m-text").value = post.text || "";
+      messagePicture = null;
+      keepOldPicture = true;
+      if (post.image) {
+        showMessagePicture(fileUrl(post.image));
+      } else {
+        $("m-picture").classList.add("hidden");
+        $("m-drop").classList.remove("hidden");
+      }
+      $("m-heading").textContent = "Edit message";
+      $("m-publish").textContent = "Save changes";
+      $("m-cancel").classList.remove("hidden");
+      showPanel("p-message");
+      window.scrollTo(0, 0);
+    }
+
+    $("m-cancel").onclick = function () {
+      resetMessageForm();
+      loadDraft();
+    };
+
+    $("m-publish").onclick = async function () {
+      const title = $("m-title").value.trim();
+      const text = $("m-text").value.trim();
+      if (!text) return warn("Write something in the message box first.", "m-text");
+      const editingId = editingPostId;
+      const picture = messagePicture;
+      const keepOld = keepOldPicture;
+
+      const ok = await busy($("m-publish"), editingId ? "Saving…" : "Publishing…", async function (progress) {
+        let image = "";
+        if (picture) {
+          progress("Uploading picture…");
+          image = await uploadImage(picture);
+          progress(editingId ? "Saving…" : "Publishing…");
+        }
+        const summary = title || text.slice(0, 40);
+
+        if (editingId) {
+          let oldImage = "";
+          await changeSite(function (data) {
+            const post = data.posts.find(function (p) { return p.id === editingId; });
+            if (!post) throw new Error("That message isn't on the website any more.");
+            oldImage = post.image || "";
+            post.title = title;
+            post.text = text;
+            if (image) post.image = image;
+            else if (!keepOld) post.image = "";
+          }, "Edit message: " + summary);
+          if (oldImage && (image || !keepOld)) await deleteFile(oldImage, "Remove old picture").catch(function () {});
+          toast("Saved! Your website updates in about a minute.", "ok", true);
+        } else {
+          await changeSite(function (data) {
+            data.posts.push({ id: makeId(), title: title, text: text, image: image, date: today() });
+          }, "New message: " + summary);
+          clearDraft();
+          toast("Published! Your website updates in about a minute.", "ok", true);
+        }
+      });
+      if (ok) resetMessageForm();
+    };
+
+    // ---------------------------------------------------------------------
+    //  Photos
+    // ---------------------------------------------------------------------
+    let chosenPhotos = [];   // { file, url, caption }
+
+    function drawChosenPhotos() {
+      const list = $("ph-list");
+      list.textContent = "";
+      chosenPhotos.forEach(function (item, index) {
+        const row = el("div", "photo-row");
+        const img = el("img");
+        img.src = item.url;
+        img.alt = "";
+        const caption = el("input");
+        caption.type = "text";
+        caption.maxLength = 120;
+        caption.placeholder = "Caption (optional)";
+        caption.value = item.caption;
+        caption.setAttribute("aria-label", "Caption for picture " + (index + 1));
+        caption.oninput = function () { item.caption = caption.value; };
+        const remove = el("button", "icon-btn", "✕");
+        remove.type = "button";
+        remove.setAttribute("aria-label", "Remove picture " + (index + 1));
+        remove.onclick = function () {
+          URL.revokeObjectURL(item.url);
+          chosenPhotos.splice(index, 1);
+          drawChosenPhotos();
+        };
+        row.append(img, caption, remove);
+        list.append(row);
+      });
+      $("ph-publish").disabled = chosenPhotos.length === 0;
+      $("ph-publish").textContent = chosenPhotos.length > 1 ? "Publish " + chosenPhotos.length + " photos" : "Publish photo";
+    }
+
+    $("ph-files").onchange = function () {
+      for (const file of $("ph-files").files) {
+        chosenPhotos.push({ file: file, url: URL.createObjectURL(file), caption: "" });
+      }
+      $("ph-files").value = "";
+      drawChosenPhotos();
+    };
+
+    $("ph-publish").onclick = async function () {
+      const items = chosenPhotos.slice();
+      if (items.length === 0) return;
+      const ok = await busy($("ph-publish"), "Uploading…", async function (progress) {
+        const added = [];
+        for (let i = 0; i < items.length; i++) {
+          progress("Uploading " + (i + 1) + " of " + items.length + "…");
+          const path = await uploadImage(items[i].file);
+          added.push({ id: makeId(), file: path, caption: items[i].caption.trim(), date: today() });
+        }
+        progress("Publishing…");
+        await changeSite(function (data) {
+          for (const photo of added) data.photos.push(photo);
+        }, "Add " + added.length + (added.length === 1 ? " photo" : " photos"));
+        toast("Published! Your website updates in about a minute.", "ok", true);
+      });
+      if (ok) {
+        for (const item of items) URL.revokeObjectURL(item.url);
+        chosenPhotos = [];
+      }
+      drawChosenPhotos();
+    };
+
+    // ---------------------------------------------------------------------
+    //  Games
+    // ---------------------------------------------------------------------
+    let gameFiles = [];
+
+    function isHtml(file) { return /\.html?$/i.test(file.name); }
+
+    $("g-files").onchange = function () {
+      gameFiles = Array.from($("g-files").files);
+      if (gameFiles.length === 0) { $("g-chosen").textContent = ""; return; }
+      const total = gameFiles.reduce(function (sum, f) { return sum + f.size; }, 0);
+      let text = (gameFiles.length === 1 ? "Chosen: " + gameFiles[0].name : gameFiles.length + " files chosen") +
+        " (" + megabytes(total) + ").";
+      if (!gameFiles.some(isHtml)) text += " ⚠️ There's no .html file. The game needs one.";
+      const big = gameFiles.find(function (f) { return f.size > 25e6; });
+      if (big) text += " ⚠️ " + big.name + " is very big, so uploading may be slow or fail.";
+      $("g-chosen").textContent = text;
+    };
+
+    $("g-publish").onclick = async function () {
+      const title = $("g-title").value.trim();
+      const htmlFiles = gameFiles.filter(isHtml);
+      if (!title) return warn("Give the game a name first.", "g-title");
+      if (gameFiles.length === 0) return warn("Choose the game file first.");
+      if (htmlFiles.length === 0) return warn("The game needs an .html file.");
+      const tooBig = gameFiles.find(function (f) { return f.size > 95e6; });
+      if (tooBig) return warn(tooBig.name + " is too big for GitHub (over 95 MB).");
+
+      const files = gameFiles.slice();
+      const picture = $("g-emoji").value.trim() || "🎮";
+      const about = $("g-about").value.trim();
+
+      const ok = await busy($("g-publish"), "Uploading…", async function (progress) {
+        // pick a name that isn't taken yet
+        const taken = new Set(site.games.map(function (g) { return g.id; }));
+        let id = slugify(title);
+        for (let n = 2; taken.has(id); n++) id = slugify(title) + "-" + n;
+
+        let mainFile;
+        const uploaded = [];
+        if (files.length === 1) {
+          mainFile = "games/" + id + ".html";
+          await uploadFile(mainFile, await blobToBase64(files[0]), "Add game: " + title);
+          uploaded.push(mainFile);
+        } else {
+          const main = htmlFiles.find(function (f) { return /^index\.html?$/i.test(f.name); }) || htmlFiles[0];
+          for (let i = 0; i < files.length; i++) {
+            progress("Uploading " + (i + 1) + " of " + files.length + "…");
+            const path = "games/" + id + "/" + files[i].name;
+            await uploadFile(path, await blobToBase64(files[i]), "Add game: " + title);
+            uploaded.push(path);
+          }
+          mainFile = "games/" + id + "/" + main.name;
+        }
+
+        progress("Publishing…");
+        await changeSite(function (data) {
+          data.games.push({ id: id, title: title, picture: picture, about: about, file: mainFile, files: uploaded, date: today() });
+        }, "Add game: " + title);
+        toast("Published! " + title + " will be on your website in about a minute.", "ok", true);
+      });
+
+      if (ok) {
+        $("g-title").value = "";
+        $("g-about").value = "";
+        $("g-emoji").value = "🎮";
+        $("g-files").value = "";
+        $("g-chosen").textContent = "";
+        gameFiles = [];
+      }
+    };
+
+    // ---------------------------------------------------------------------
+    //  About me
+    // ---------------------------------------------------------------------
+    let aboutPhoto = null;          // a new profile picture
+    let removeAboutPhoto = false;   // switch back to the emoji
+
+    function fillAboutForm() {
+      const p = site.profile;
+      $("a-name").value = p.name || "";
+      $("a-tagline").value = p.tagline || "";
+      $("a-about").value = p.about || "";
+      $("a-emoji").value = p.avatar || "🙂";
+      aboutPhoto = null;
+      removeAboutPhoto = false;
+      if (p.avatarPhoto) {
+        $("a-preview").src = fileUrl(p.avatarPhoto);
+        $("a-photo").classList.remove("hidden");
+      } else {
+        $("a-photo").classList.add("hidden");
+      }
+    }
+
+    $("a-file").onchange = function () {
+      const file = $("a-file").files[0];
+      $("a-file").value = "";
+      if (!file) return;
+      aboutPhoto = file;
+      removeAboutPhoto = false;
+      $("a-preview").src = URL.createObjectURL(file);
+      $("a-photo").classList.remove("hidden");
+    };
+
+    $("a-remove-photo").onclick = function () {
+      aboutPhoto = null;
+      removeAboutPhoto = true;
+      $("a-photo").classList.add("hidden");
+    };
+
+    $("a-save").onclick = async function () {
+      const name = $("a-name").value.trim();
+      if (!name) return warn("Your website needs a name.", "a-name");
+      const photo = aboutPhoto;
+      const removePhoto = removeAboutPhoto;
+
+      const ok = await busy($("a-save"), "Saving…", async function (progress) {
+        let photoPath = "";
+        if (photo) {
+          progress("Uploading picture…");
+          photoPath = await uploadImage(photo, 600);
+          progress("Saving…");
+        }
+        let oldPhoto = "";
+        await changeSite(function (data) {
+          const p = data.profile;
+          oldPhoto = p.avatarPhoto || "";
+          p.name = name;
+          p.tagline = $("a-tagline").value.trim();
+          p.about = $("a-about").value.trim();
+          p.avatar = $("a-emoji").value.trim() || "🙂";
+          if (photoPath) p.avatarPhoto = photoPath;
+          else if (removePhoto) p.avatarPhoto = "";
+        }, "Update About me");
+        if (oldPhoto && (photoPath || removePhoto)) await deleteFile(oldPhoto, "Remove old profile picture").catch(function () {});
+        toast("Saved! Your website updates in about a minute.", "ok", true);
+      });
+      if (ok) fillAboutForm();
+    };
+
+    // ---------------------------------------------------------------------
+    //  Manage
+    // ---------------------------------------------------------------------
+    function drawList(boxId, items, describe, onEdit, onDelete) {
+      const box = $(boxId);
+      box.textContent = "";
+      if (items.length === 0) {
+        box.append(el("p", "hint", "Nothing here yet."));
+        return;
+      }
+      for (const item of items) {
+        const d = describe(item);
+        const row = el("div", "item");
+        const thumb = el("div", "thumb");
+        if (d.image) {
+          const img = el("img");
+          img.src = fileUrl(d.image);
+          img.alt = "";
+          img.loading = "lazy";
+          thumb.append(img);
+        } else {
+          thumb.textContent = d.icon || "";
+        }
+        const info = el("div", "info");
+        info.append(el("b", "", d.title), el("small", "", d.date));
+        row.append(thumb, info);
+        if (onEdit) {
+          const edit = el("button", "btn btn-small", "Edit");
+          edit.type = "button";
+          edit.onclick = function () { onEdit(item); };
+          row.append(edit);
+        }
+        const remove = el("button", "btn btn-small btn-danger", "Delete");
+        remove.type = "button";
+        remove.onclick = function () { onDelete(item, remove); };
+        row.append(remove);
+        box.append(row);
+      }
+    }
+
+    function drawManage() {
+      drawList("list-games", newestFirst(site.games), function (g) {
+        return { icon: g.picture || "🎮", title: g.title, date: niceDate(g.date) };
+      }, null, deleteGame);
+
+      drawList("list-posts", newestFirst(site.posts), function (p) {
+        return { image: p.image, icon: "✍️", title: p.title || (p.text || "").slice(0, 60), date: niceDate(p.date) };
+      }, startEditing, deletePost);
+
+      drawList("list-photos", newestFirst(site.photos), function (ph) {
+        return { image: ph.file, title: ph.caption || "(no caption)", date: niceDate(ph.date) };
+      }, null, deletePhoto);
+    }
+
+    async function deleteGame(game, button) {
+      if (!confirm("Delete the game “" + game.title + "” from your website?")) return;
+      await busy(button, "Deleting…", async function () {
+        await changeSite(function (data) {
+          data.games = data.games.filter(function (g) { return g.id !== game.id; });
+        }, "Delete game: " + game.title);
+        for (const path of game.files || [game.file]) {
+          await deleteFile(path, "Delete game: " + game.title).catch(function () {});
+        }
+        toast("Deleted " + game.title + ".", "ok");
+      });
+    }
+
+    async function deletePost(post, button) {
+      const name = post.title || (post.text || "").slice(0, 40);
+      if (!confirm("Delete the message “" + name + "”?")) return;
+      await busy(button, "Deleting…", async function () {
+        await changeSite(function (data) {
+          data.posts = data.posts.filter(function (p) { return p.id !== post.id; });
+        }, "Delete message: " + name);
+        if (post.image) await deleteFile(post.image, "Delete message picture").catch(function () {});
+        if (editingPostId === post.id) resetMessageForm();
+        toast("Message deleted.", "ok");
+      });
+    }
+
+    async function deletePhoto(photo, button) {
+      if (!confirm("Delete this photo" + (photo.caption ? " (“" + photo.caption + "”)" : "") + "?")) return;
+      await busy(button, "Deleting…", async function () {
+        await changeSite(function (data) {
+          data.photos = data.photos.filter(function (p) { return p.id !== photo.id; });
+        }, "Delete photo");
+        await deleteFile(photo.file, "Delete photo").catch(function () {});
+        toast("Photo deleted.", "ok");
+      });
+    }
+
+    // =====================================================================
+    //  Start
+    // =====================================================================
+    (async function start() {
+      const saved = savedConnection();
+      if (saved) {
+        conn = saved;
+        try {
+          site = (await loadSite()).data;
+          openEditor();
+          return;
+        } catch (error) {
+          toast(friendlyError(error), "bad");
+          conn = null;
+        }
+      }
+      showConnect(saved);
+    })();
+  </script>
+</body>
+</html>
