@@ -28,5 +28,12 @@ window.SITE = {
       "date": "2026-10-11"
     }
   ],
-  "photos": []
+  "photos": [
+    {
+      "id": "mv4ayw9c4inn",
+      "file": "photos/2026-10-11-qtqpxg.jpg",
+      "caption": "Search it on internet",
+      "date": "2026-10-11"
+    }
+  ]
 };
