@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Website</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --sky: #12152b;
+      --panel: #1d2340;
+      --panel-hover: #252c52;
+      --text: #f2f3fa;
+      --muted: #a9aecb;
+      --yellow: #ffd75e;
+      --pink: #ff8fc7;
+      --line: #ffffff;
+      --shadow: #000000;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--sky);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+
+    main {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 40px 16px 32px;
+    }
+
+    a { color: var(--yellow); }
+
+    .pixel { font-family: "Press Start 2P", monospace; }
+
+    /* ---------- header ---------- */
+    .hero { text-align: center; margin-bottom: 28px; }
+
+    .avatar {
+      width: 112px;
+      height: 112px;
+      margin: 0 auto;
+      display: grid;
+      place-items: center;
+      font-size: 60px;
+      background: var(--panel);
+      border: 3px solid var(--line);
+      border-radius: 50%;
+      box-shadow: 5px 5px 0 var(--shadow);
+      overflow: hidden;
+    }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+    h1 {
+      font-size: clamp(20px, 5.5vw, 38px);
+      line-height: 1.35;
+      color: var(--yellow);
+      margin: 22px 0 10px;
+      text-shadow: 4px 4px 0 var(--shadow);
+      overflow-wrap: anywhere;
+    }
+
+    .tagline { color: var(--muted); font-size: 18px; margin: 0; }
+
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 0;
+      margin-bottom: 20px;
+      background: var(--sky);
+    }
+
+    nav a {
+      padding: 8px 16px;
+      background: var(--panel);
+      border: 2px solid var(--line);
+      border-radius: 99px;
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 15px;
+    }
+    nav a:hover, nav a:focus-visible { background: var(--yellow); color: var(--sky); outline: none; }
+
+    /* ---------- sections ---------- */
+    section { padding-top: 24px; margin-bottom: 44px; scroll-margin-top: 64px; }
+
+    h2 {
+      font-size: 16px;
+      color: var(--text);
+      margin: 0 0 20px;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    h2 .count { color: var(--muted); font-family: system-ui, sans-serif; font-size: 14px; font-weight: 400; }
+
+    .box {
+      background: var(--panel);
+      border: 3px solid var(--line);
+      border-radius: 6px;
+      box-shadow: 6px 6px 0 var(--shadow);
+    }
+
+    .empty {
+      grid-column: 1 / -1;
+      padding: 28px;
+      text-align: center;
+      color: var(--muted);
+      border: 3px dashed var(--muted);
+      border-radius: 6px;
+    }
+
+    /* ---------- games ---------- */
+    .games {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 20px;
+    }
+
+    .game {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 24px;
+      color: var(--text);
+      text-decoration: none;
+      transition: transform 0.12s, box-shadow 0.12s, background 0.12s;
+    }
+    .game:hover, .game:focus-visible {
+      background: var(--panel-hover);
+      transform: translate(-2px, -2px);
+      box-shadow: 8px 8px 0 var(--shadow);
+      outline: none;
+    }
+    .game .picture { font-size: 56px; line-height: 1; }
+    .game h3 { font-size: 22px; margin: 4px 0 0; }
+    .game p { color: var(--muted); margin: 0; flex: 1; }
+
+    .play {
+      align-self: flex-start;
+      margin-top: 8px;
+      padding: 10px 18px;
+      background: var(--yellow);
+      color: var(--sky);
+      font-weight: 800;
+      border-radius: 4px;
+    }
+
+    .new {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      padding: 2px 10px;
+      background: var(--pink);
+      color: var(--sky);
+      font-size: 13px;
+      font-weight: 800;
+      border-radius: 99px;
+    }
+
+    /* ---------- messages ---------- */
+    .posts { display: flex; flex-direction: column; gap: 20px; max-width: 760px; }
+
+    .post { padding: 22px 24px; }
+    .post time { color: var(--muted); font-size: 14px; }
+    .post h3 { margin: 4px 0 8px; font-size: 22px; }
+    .post p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .post img {
+      display: block;
+      width: 100%;
+      max-height: 520px;
+      object-fit: cover;
+      margin-top: 16px;
+      border: 2px solid var(--line);
+      border-radius: 4px;
+      cursor: zoom-in;
+    }
+
+    .more {
+      align-self: flex-start;
+      padding: 10px 18px;
+      background: transparent;
+      color: var(--text);
+      border: 2px solid var(--line);
+      border-radius: 4px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .more:hover { background: var(--panel); }
+
+    /* ---------- photos ---------- */
+    .photos {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 14px;
+    }
+
+    .photo {
+      padding: 0;
+      background: var(--panel);
+      border: 3px solid var(--line);
+      border-radius: 6px;
+      box-shadow: 5px 5px 0 var(--shadow);
+      overflow: hidden;
+      cursor: zoom-in;
+      text-align: left;
+      color: var(--text);
+      font: inherit;
+    }
+    .photo img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+    .photo span {
+      display: block;
+      padding: 8px 10px;
+      font-size: 14px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .photo:hover, .photo:focus-visible { outline: 3px solid var(--yellow); outline-offset: 0; }
+
+    /* ---------- about ---------- */
+    .about {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      padding: 24px;
+      max-width: 760px;
+    }
+    .about .avatar { flex: none; width: 88px; height: 88px; font-size: 46px; box-shadow: none; }
+    .about p { margin: 0; white-space: pre-wrap; font-size: 17px; }
+
+    footer { text-align: center; color: var(--muted); font-size: 14px; margin-top: 56px; }
+
+    /* ---------- photo viewer ---------- */
+    dialog {
+      max-width: min(92vw, 1100px);
+      max-height: 92vh;
+      padding: 0;
+      background: var(--sky);
+      color: var(--text);
+      border: 3px solid var(--line);
+      border-radius: 6px;
+    }
+    dialog::backdrop { background: rgba(0, 0, 0, 0.85); }
+    dialog img { display: block; max-width: 100%; max-height: calc(92vh - 70px); margin: 0 auto; }
+    .viewer-bar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+    .viewer-bar span { flex: 1; color: var(--muted); }
+    .viewer-bar button {
+      min-width: 44px;
+      height: 40px;
+      background: var(--panel);
+      color: var(--text);
+      border: 2px solid var(--line);
+      border-radius: 4px;
+      font-size: 18px;
+      cursor: pointer;
+    }
+
+    @media (max-width: 560px) {
+      .about { flex-direction: column; text-align: center; }
+      .photos { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="hero">
+      <div class="avatar" id="avatar"></div>
+      <h1 class="pixel" id="name"></h1>
+      <p class="tagline" id="tagline"></p>
+    </header>
+
+    <nav>
+      <a href="#games">🎮 Games</a>
+      <a href="#messages">✍️ Messages</a>
+      <a href="#photos">📷 Photos</a>
+      <a href="#about">🙂 About</a>
+    </nav>
+
+    <section id="games">
+      <h2 class="pixel">Games <span class="count" id="games-count"></span></h2>
+      <div class="games" id="games-list"></div>
+    </section>
+
+    <section id="messages">
+      <h2 class="pixel">Messages <span class="count" id="posts-count"></span></h2>
+      <div class="posts" id="posts-list"></div>
+    </section>
+
+    <section id="photos">
+      <h2 class="pixel">Photos <span class="count" id="photos-count"></span></h2>
+      <div class="photos" id="photos-list"></div>
+    </section>
+
+    <section id="about">
+      <h2 class="pixel">About me</h2>
+      <div class="about box">
+        <div class="avatar" id="about-avatar"></div>
+        <p id="about-text"></p>
+      </div>
+    </section>
+
+    <footer id="footer"></footer>
+  </main>
+
+  <dialog id="viewer">
+    <img id="viewer-img" alt="">
+    <div class="viewer-bar">
+      <button id="viewer-prev" aria-label="Previous photo">‹</button>
+      <button id="viewer-next" aria-label="Next photo">›</button>
+      <span id="viewer-caption"></span>
+      <button id="viewer-close" aria-label="Close">✕</button>
+    </div>
+  </dialog>
+
+  <script>
+    // ---------- little helpers ----------
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    // "2026-10-11" -> "Oct 11, 2026" (read as a local date, so it never shifts a day)
+    function niceDate(isoDate) {
+      if (!isoDate) return "";
+      const parts = isoDate.split("-").map(Number);
+      const date = new Date(parts[0], parts[1] - 1, parts[2]);
+      return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    }
+
+    function newestFirst(list) {
+      return list.slice().sort(function (a, b) { return (b.date || "").localeCompare(a.date || ""); });
+    }
+
+    function fillAvatar(box, profile) {
+      box.textContent = "";
+      if (profile.avatarPhoto) {
+        const img = el("img");
+        img.src = profile.avatarPhoto;
+        img.alt = "";
+        box.appendChild(img);
+      } else {
+        box.textContent = profile.avatar || "🙂";
+      }
+    }
+
+    function countText(n, one, many) { return n + " " + (n === 1 ? one : many); }
+
+    // ---------- photo viewer ----------
+    const viewer = document.getElementById("viewer");
+    let viewerList = [];
+    let viewerIndex = 0;
+
+    function openViewer(list, index) {
+      viewerList = list;
+      viewerIndex = index;
+      showViewerPhoto();
+      if (!viewer.open) viewer.showModal();
+    }
+
+    function showViewerPhoto() {
+      const item = viewerList[viewerIndex];
+      document.getElementById("viewer-img").src = item.src;
+      document.getElementById("viewer-img").alt = item.caption || "";
+      document.getElementById("viewer-caption").textContent = item.caption || "";
+      const several = viewerList.length > 1;
+      document.getElementById("viewer-prev").hidden = !several;
+      document.getElementById("viewer-next").hidden = !several;
+    }
+
+    function stepViewer(direction) {
+      viewerIndex = (viewerIndex + direction + viewerList.length) % viewerList.length;
+      showViewerPhoto();
+    }
+
+    document.getElementById("viewer-prev").onclick = function () { stepViewer(-1); };
+    document.getElementById("viewer-next").onclick = function () { stepViewer(1); };
+    document.getElementById("viewer-close").onclick = function () { viewer.close(); };
+    viewer.addEventListener("click", function (event) { if (event.target === viewer) viewer.close(); });
+    document.addEventListener("keydown", function (event) {
+      if (!viewer.open) return;
+      if (event.key === "ArrowLeft") stepViewer(-1);
+      if (event.key === "ArrowRight") stepViewer(1);
+    });
+
+    // ---------- draw the page from content/data.js ----------
+    function render(site) {
+      const profile = site.profile || {};
+      const games = newestFirst(site.games || []);
+      const posts = newestFirst(site.posts || []);
+      const photos = newestFirst(site.photos || []);
+
+      document.title = profile.name || "My Website";
+      document.getElementById("name").textContent = profile.name || "My Website";
+      document.getElementById("tagline").textContent = profile.tagline || "";
+      fillAvatar(document.getElementById("avatar"), profile);
+      fillAvatar(document.getElementById("about-avatar"), profile);
+      document.getElementById("about-text").textContent = profile.about || "";
+
+      // games
+      const gamesBox = document.getElementById("games-list");
+      document.getElementById("games-count").textContent = countText(games.length, "game", "games");
+      const twoWeeks = 14 * 24 * 60 * 60 * 1000;
+      for (const game of games) {
+        const card = el("a", "game box");
+        card.href = game.file;
+        if (game.date && Date.now() - new Date(game.date).getTime() < twoWeeks) {
+          card.appendChild(el("span", "new", "NEW!"));
+        }
+        card.append(
+          el("div", "picture", game.picture || "🎮"),
+          el("h3", "", game.title),
+          el("p", "", game.about || ""),
+          el("span", "play", "PLAY ▶")
+        );
+        gamesBox.appendChild(card);
+      }
+      if (games.length === 0) gamesBox.appendChild(el("div", "empty", "No games yet. Coming soon!"));
+
+      // messages (show 5, then a button for older ones)
+      const postsBox = document.getElementById("posts-list");
+      document.getElementById("posts-count").textContent = countText(posts.length, "message", "messages");
+      const postImages = posts.filter(function (p) { return p.image; })
+        .map(function (p) { return { src: p.image, caption: p.title || "" }; });
+      let shown = 0;
+
+      function showMorePosts() {
+        const next = posts.slice(shown, shown + 5);
+        for (const post of next) {
+          const card = el("article", "post box");
+          card.append(el("time", "", niceDate(post.date)));
+          if (post.title) card.append(el("h3", "", post.title));
+          card.append(el("p", "", post.text || ""));
+          if (post.image) {
+            const img = el("img");
+            img.src = post.image;
+            img.alt = post.title || "";
+            img.loading = "lazy";
+            img.onclick = function () {
+              openViewer(postImages, postImages.findIndex(function (i) { return i.src === post.image; }));
+            };
+            card.append(img);
+          }
+          postsBox.insertBefore(card, moreButton);
+        }
+        shown += next.length;
+        moreButton.hidden = shown >= posts.length;
+      }
+
+      const moreButton = el("button", "more", "Show older messages");
+      moreButton.onclick = showMorePosts;
+      postsBox.appendChild(moreButton);
+      showMorePosts();
+      if (posts.length === 0) postsBox.insertBefore(el("div", "empty", "No messages yet."), moreButton);
+
+      // photos
+      const photosBox = document.getElementById("photos-list");
+      document.getElementById("photos-count").textContent = countText(photos.length, "photo", "photos");
+      const photoItems = photos.map(function (p) { return { src: p.file, caption: p.caption || "" }; });
+      photos.forEach(function (photo, index) {
+        const tile = el("button", "photo");
+        tile.type = "button";
+        const img = el("img");
+        img.src = photo.file;
+        img.alt = photo.caption || "Photo";
+        img.loading = "lazy";
+        tile.append(img);
+        if (photo.caption) tile.append(el("span", "", photo.caption));
+        tile.onclick = function () { openViewer(photoItems, index); };
+        photosBox.appendChild(tile);
+      });
+      if (photos.length === 0) photosBox.appendChild(el("div", "empty", "No photos yet."));
+
+      document.getElementById("footer").textContent =
+        "Made by " + (profile.name || "me") + " with HTML and JavaScript";
+    }
+
+    function showOops() {
+      document.getElementById("name").textContent = "Oops!";
+      document.getElementById("tagline").textContent =
+        "The website's content file (content/data.js) didn't load or has a typo.";
+    }
+
+    // load the content, skipping old saved copies so new posts show up right away
+    const loader = document.createElement("script");
+    loader.src = "content/data.js?v=" + Date.now();
+    loader.onload = function () { window.SITE ? render(window.SITE) : showOops(); };
+    loader.onerror = showOops;
+    document.head.appendChild(loader);
+  </script>
+</body>
+</html>
