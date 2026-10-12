@@ -3,21 +3,26 @@
 <head>
   <meta charset="utf-8">
   <!-- tells phones to show the page at its real size instead of zoomed out -->
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Star Catcher</title>
   <style>
     body {
       margin: 0;
-      height: 100vh;
+      min-height: 100vh;
+      min-height: 100dvh;          /* the part of the screen you can really see (phones) */
       background: #111;
       display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: center;
+      box-sizing: border-box;
+      padding: 12px 0 24px;
     }
     /* the game area: as big as fits the screen, always 480 x 600 in shape */
     .stage {
       position: relative;
-      width: min(480px, 100vw, calc(95vh * 0.8));
+      width: min(480px, 100vw, calc(92vh * 0.8));
+      width: min(480px, 100vw, calc((100dvh - 40px) * 0.8));
     }
     canvas {
       display: block;
@@ -86,6 +91,24 @@
       font: bold 15px sans-serif;
       text-decoration: none;
       border-radius: 4px;
+    }
+    /* phones: game near the top, a little space at the bottom */
+    @media (max-width: 600px) {
+      body {
+        justify-content: flex-start;
+        padding: 8px 0 calc(28px + env(safe-area-inset-bottom));
+      }
+      .back {
+        position: static;
+        align-self: flex-start;
+        margin: 0 0 8px 10px;
+        padding: 5px 10px;
+        font-size: 14px;
+      }
+      .stage {
+        width: min(100vw, calc(88vh * 0.8));
+        width: min(100vw, calc((100dvh - 90px) * 0.8));
+      }
     }
   </style>
 </head>
