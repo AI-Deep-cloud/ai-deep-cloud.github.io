@@ -140,6 +140,12 @@
     // ---------------------------------------------------------------
     const canvas = document.getElementById("game");
     const pen = canvas.getContext("2d");
+    const W = 480;                   // the game is always 480 wide and 600 tall...
+    const H = 600;
+    // ...but it's drawn with extra detail on sharp screens (like phones), so it never looks blurry
+    const DPR = Math.min(3, window.devicePixelRatio || 1);
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
 
     // ---------------------------------------------------------------
     // 2. STATE
@@ -559,10 +565,10 @@
       }
 
       if (playerCount === 1) {
-        players[0].x = (canvas.width - players[0].width) / 2;
+        players[0].x = (W - players[0].width) / 2;
       } else {
-        players[0].x = canvas.width * 0.25 - players[0].width / 2;
-        players[1].x = canvas.width * 0.75 - players[1].width / 2;
+        players[0].x = W * 0.25 - players[0].width / 2;
+        players[1].x = W * 0.75 - players[1].width / 2;
       }
       gameState = "playing";
     }
@@ -683,8 +689,8 @@
     function gameSpot(event) {
       const box = canvas.getBoundingClientRect();
       return {
-        x: (event.clientX - box.left) * canvas.width / box.width,
-        y: (event.clientY - box.top) * canvas.height / box.height
+        x: (event.clientX - box.left) * W / box.width,
+        y: (event.clientY - box.top) * H / box.height
       };
     }
 
@@ -779,7 +785,7 @@
       const thing = {
         kind: "star",
         picture: starPicture,
-        x: 20 + Math.random() * (canvas.width - 40),
+        x: 20 + Math.random() * (W - 40),
         y: -20,
         size: 32,
         speed: (120 + Math.random() * 120) * levelBoost
@@ -842,7 +848,7 @@
 
     // NEW: words that float up and fade, like "+3"
     function popup(text, x, y, color) {
-      popups.push({ text: text, x: Math.max(90, Math.min(canvas.width - 90, x)), y: y, color: color, life: 1 });
+      popups.push({ text: text, x: Math.max(90, Math.min(W - 90, x)), y: y, color: color, life: 1 });
     }
 
     // NEW: big message in the middle of the screen
@@ -987,7 +993,7 @@
         if (right) p.x += p.speed * dt;
 
         if (p.x < 0) p.x = 0;
-        if (p.x > canvas.width - p.width) p.x = canvas.width - p.width;
+        if (p.x > W - p.width) p.x = W - p.width;
       }
 
       // NEW: every 10 normal stars is a new level, and some levels start a bonus round
@@ -1029,13 +1035,13 @@
         }
 
         // the shield catches stars just before they hit the ground
-        if (!thing.gone && shieldTime > 0 && thing.kind === "star" && thing.y > canvas.height - 28) {
+        if (!thing.gone && shieldTime > 0 && thing.kind === "star" && thing.y > H - 28) {
           thing.gone = true;
-          burst(thing.x, canvas.height - 28, ["#7df9ff", "white"]);
+          burst(thing.x, H - 28, ["#7df9ff", "white"]);
           sounds.shield();
         }
 
-        if (!thing.gone && thing.y > canvas.height + thing.size) {
+        if (!thing.gone && thing.y > H + thing.size) {
           thing.gone = true;
           if (thing.kind === "star") {           // only missing a normal star costs a life
             lives -= 1;
@@ -1071,22 +1077,22 @@
 
     function drawMessage(title, lines, prompt) {
       pen.fillStyle = "rgba(0, 0, 0, 0.65)";
-      pen.fillRect(0, 0, canvas.width, canvas.height);
+      pen.fillRect(0, 0, W, H);
 
       pen.textAlign = "center";
       pen.textBaseline = "middle";
       pen.fillStyle = "white";
       pen.font = "bold 44px sans-serif";
-      pen.fillText(title, canvas.width / 2, canvas.height / 2 - 90);
+      pen.fillText(title, W / 2, H / 2 - 90);
 
       pen.font = "19px sans-serif";
       for (let i = 0; i < lines.length; i++) {
-        pen.fillText(lines[i], canvas.width / 2, canvas.height / 2 - 30 + i * 32);
+        pen.fillText(lines[i], W / 2, H / 2 - 30 + i * 32);
       }
 
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 19px sans-serif";
-      pen.fillText(prompt, canvas.width / 2, canvas.height / 2 + 100);
+      pen.fillText(prompt, W / 2, H / 2 + 100);
     }
 
     // NEW: a little guide to the power-ups on the start screen
@@ -1095,9 +1101,9 @@
       pen.textBaseline = "middle";
       pen.font = "14px sans-serif";
       pen.fillStyle = "#cfd3ee";
-      pen.fillText("❤️ extra life    🍄 big paddle    🧲 star magnet", canvas.width / 2, 72);
-      pen.fillText("🐢 slow motion    🛡️ shield    💎 double points", canvas.width / 2, 94);
-      pen.fillText("Dodge 💣 bombs!   🌟 Bonus round every 3 levels", canvas.width / 2, 116);
+      pen.fillText("❤️ extra life    🍄 big paddle    🧲 star magnet", W / 2, 72);
+      pen.fillText("🐢 slow motion    🛡️ shield    💎 double points", W / 2, 94);
+      pen.fillText("Dodge 💣 bombs!   🌟 Bonus round every 3 levels", W / 2, 116);
     }
 
     // NEW: EASY / MEDIUM / HARD buttons (the picked one is yellow)
@@ -1124,7 +1130,7 @@
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 17px sans-serif";
       // 🌍 = everyone's scores, 📱 = only this device (when the internet is down)
-      pen.fillText((isOnline() ? "🌍 WORLD TOP 3 · " : "📱 TOP 3 ON THIS DEVICE · ") + settings().label, canvas.width / 2, top);
+      pen.fillText((isOnline() ? "🌍 WORLD TOP 3 · " : "📱 TOP 3 ON THIS DEVICE · ") + settings().label, W / 2, top);
 
       const medals = ["🥇", "🥈", "🥉"];
       for (let i = 0; i < 3; i++) {
@@ -1155,12 +1161,12 @@
       pen.textBaseline = "middle";
       pen.fillStyle = "#aab";
       pen.font = "13px sans-serif";
-      pen.fillText("#1 on " + parts.join("   ·   "), canvas.width / 2, y);
+      pen.fillText("#1 on " + parts.join("   ·   "), W / 2, y);
     }
 
     function dimScreen() {
       pen.fillStyle = "rgba(0, 0, 0, 0.7)";
-      pen.fillRect(0, 0, canvas.width, canvas.height);
+      pen.fillRect(0, 0, W, H);
     }
 
     function drawStartScreen() {
@@ -1170,16 +1176,16 @@
       pen.textBaseline = "middle";
       pen.fillStyle = "white";
       pen.font = "bold 44px sans-serif";
-      pen.fillText("STAR CATCHER", canvas.width / 2, 160);
+      pen.fillText("STAR CATCHER", W / 2, 160);
       pen.font = "18px sans-serif";
-      pen.fillText("Catch ⭐, grab power-ups, dodge 💣!", canvas.width / 2, 198);
+      pen.fillText("Catch ⭐, grab power-ups, dodge 💣!", W / 2, 198);
       drawDifficultyButtons();
       drawLeaderboard(290);
       drawOtherBests(386);
       pen.textAlign = "center";
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 19px sans-serif";
-      pen.fillText("How many players?", canvas.width / 2, 408);
+      pen.fillText("How many players?", W / 2, 408);
       drawButtons();
       drawPlayingAs();
     }
@@ -1192,7 +1198,7 @@
       pen.fillStyle = "white";
       pen.font = "16px sans-serif";
       const who = playerCount === 2 && names[1] ? names[0] + " & " + names[1] : names[0];
-      pen.fillText("👤 Playing as " + who, canvas.width / 2, 506);
+      pen.fillText("👤 Playing as " + who, W / 2, 506);
       const b = changeNameButton;
       pen.strokeStyle = "#8a8fb0";
       pen.lineWidth = 2;
@@ -1208,15 +1214,15 @@
       pen.textBaseline = "middle";
       pen.fillStyle = "white";
       pen.font = "bold 44px sans-serif";
-      pen.fillText("GAME OVER", canvas.width / 2, 128);
+      pen.fillText("GAME OVER", W / 2, 128);
       pen.font = "20px sans-serif";
-      pen.fillText(resultText(), canvas.width / 2, 168);
+      pen.fillText(resultText(), W / 2, 168);
       if (justAdded.length > 0) {
         // NEW: say who made it, e.g. "Deep made the top 3!"
         const who = justAdded.map(function (e) { return e.name; }).join(" & ");
         pen.fillStyle = "#ffd75e";
         pen.font = "bold 20px sans-serif";
-        pen.fillText(newBest ? "🏆 NEW HIGH SCORE, " + justAdded[0].name + "!" : "🏆 " + who + " made the top 3!", canvas.width / 2, 196);
+        pen.fillText(newBest ? "🏆 NEW HIGH SCORE, " + justAdded[0].name + "!" : "🏆 " + who + " made the top 3!", W / 2, 196);
       }
       drawDifficultyButtons();
       drawLeaderboard(290);
@@ -1224,7 +1230,7 @@
         pen.textAlign = "center";
         pen.fillStyle = "#ff8fc7";
         pen.font = "13px sans-serif";
-        pen.fillText(onlineNote + " Saved on this device.", canvas.width / 2, 386);
+        pen.fillText(onlineNote + " Saved on this device.", W / 2, 386);
       } else {
         drawOtherBests(386);
       }
@@ -1232,9 +1238,9 @@
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 19px sans-serif";
       if (checkingScores) {
-        pen.fillText("Checking the scoreboard…", canvas.width / 2, 408);
+        pen.fillText("Checking the scoreboard…", W / 2, 408);
       } else {
-        pen.fillText("Play again?", canvas.width / 2, 408);
+        pen.fillText("Play again?", W / 2, 408);
         drawButtons();
         drawPlayingAs();
       }
@@ -1288,16 +1294,17 @@
       pen.font = "bold 15px sans-serif";
       pen.textAlign = "center";
       pen.textBaseline = "top";
-      pen.fillText(active.join("   "), canvas.width / 2 + 40, 44);
+      pen.fillText(active.join("   "), W / 2 + 40, 44);
     }
 
     function draw() {
-      pen.clearRect(0, 0, canvas.width, canvas.height);
+      pen.setTransform(DPR, 0, 0, DPR, 0, 0);         // draw everything at full sharpness
+      pen.clearRect(0, 0, W, H);
 
       // NEW: a golden glow during the bonus round
       if (bonusTime > 0) {
         pen.fillStyle = "rgba(255, 200, 60, " + (0.10 + 0.05 * Math.sin(clock * 6)) + ")";
-        pen.fillRect(0, 0, canvas.width, canvas.height);
+        pen.fillRect(0, 0, W, H);
       }
 
       // --- the game world (this part shakes) ---
@@ -1309,7 +1316,7 @@
       // NEW: the shield is a glowing line near the ground (it blinks when it's about to run out)
       if (shieldTime > 0 && (shieldTime > 2 || Math.sin(clock * 20) > 0)) {
         pen.fillStyle = "rgba(125, 249, 255, " + (0.6 + 0.3 * Math.sin(clock * 10)) + ")";
-        pen.fillRect(0, canvas.height - 28, canvas.width, 5);
+        pen.fillRect(0, H - 28, W, 5);
       }
 
       pen.textAlign = "center";
@@ -1359,16 +1366,16 @@
       pen.textBaseline = "top";
       if (bonusTime > 0) {
         pen.fillStyle = "#ffd75e";
-        pen.fillText("BONUS " + Math.ceil(bonusTime), canvas.width / 2 + 40, 14);
+        pen.fillText("BONUS " + Math.ceil(bonusTime), W / 2 + 40, 14);
       } else {
         pen.fillStyle = "white";
-        pen.fillText("Level " + level, canvas.width / 2 + 40, 14);
+        pen.fillText("Level " + level, W / 2 + 40, 14);
       }
       pen.textAlign = "right";
-      pen.fillText("❤️".repeat(lives), canvas.width - 16, 14);
+      pen.fillText("❤️".repeat(lives), W - 16, 14);
       pen.font = "14px sans-serif";
       pen.fillStyle = "#aab";
-      pen.fillText(settings().label + " · Best " + best, canvas.width - 16, 44);
+      pen.fillText(settings().label + " · Best " + best, W - 16, 44);
 
       drawActivePowerUps();
 
@@ -1378,14 +1385,14 @@
       pen.textAlign = "center";
       pen.textBaseline = "bottom";
       if (touchScreen) {
-        pen.fillText("Drag your paddle with a finger", canvas.width / 2, canvas.height - 6);
+        pen.fillText("Drag your paddle with a finger", W / 2, H - 6);
       } else if (gameState === "start" || gameState === "gameover") {
-        pen.fillText("← → difficulty    1 / 2: players    N: change name", canvas.width / 2, canvas.height - 6);
+        pen.fillText("← → difficulty    1 / 2: players    N: change name", W / 2, H - 6);
       } else {
         pen.fillText(
           (playerCount === 2 ? "P1: A / D    P2: ← →" : "← → or A / D, or drag") +
           "    P: pause    M: sound " + (soundOn ? "on" : "off"),
-          canvas.width / 2, canvas.height - 6
+          W / 2, H - 6
         );
       }
 
@@ -1396,7 +1403,7 @@
         pen.font = "bold 44px sans-serif";
         pen.textAlign = "center";
         pen.textBaseline = "middle";
-        pen.fillText(bannerText, canvas.width / 2, canvas.height / 2);
+        pen.fillText(bannerText, W / 2, H / 2);
         pen.globalAlpha = 1;
       }
 
