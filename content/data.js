@@ -11,6 +11,15 @@ window.SITE = {
   },
   "games": [
     {
+      "id": "rocket-hop",
+      "title": "Rocket Hop",
+      "picture": "\ud83d\ude80",
+      "about": "Tap to fly your rocket through the asteroid field. Grab stars and power-ups, and beat the world top 3!",
+      "file": "games/rocket-hop.html",
+      "files": ["games/rocket-hop.html"],
+      "date": "2026-10-11"
+    },
+    {
       "id": "star-catcher",
       "title": "Star Catcher",
       "picture": "⭐",
