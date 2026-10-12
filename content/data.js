@@ -11,6 +11,15 @@ window.SITE = {
   },
   "games": [
     {
+      "id": "jahan-dash",
+      "title": "Jahan Dash",
+      "picture": "\ud83c\udfc3",
+      "about": "Curious Jahan runs through Tiny Town! Jump, slide, open mystery boxes and fill the Curiosity Book with 16 amazing discoveries.",
+      "file": "games/jahan-dash.html",
+      "files": ["games/jahan-dash.html"],
+      "date": "2026-10-11"
+    },
+    {
       "id": "maze-muncher",
       "title": "Maze Muncher",
       "picture": "\ud83d\udc7e",
