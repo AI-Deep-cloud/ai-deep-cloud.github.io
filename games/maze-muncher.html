@@ -147,6 +147,12 @@
     // ---------------------------------------------------------------
     const canvas = document.getElementById("game");
     const pen = canvas.getContext("2d");
+    const W = 480;                   // the game is always 480 wide and 600 tall...
+    const H = 600;
+    // ...but it's drawn with extra detail on sharp screens (like phones), so it never looks blurry
+    const DPR = Math.min(3, window.devicePixelRatio || 1);
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
     const GAME_ID = "maze-muncher";     // this game's name in the online scoreboard
 
     // THE MAZE. We only draw the left half: the right half is a mirror image.
@@ -187,7 +193,7 @@
     const COLS = MAZE[0].length;     // 28
     const ROWS = MAZE.length;        // 29
     const T = 16;                    // size of one tile in pixels
-    const OX = (canvas.width - COLS * T) / 2;   // where the maze starts on the screen
+    const OX = (W - COLS * T) / 2;   // where the maze starts on the screen
     const OY = 60;
 
     // the four directions
@@ -782,8 +788,8 @@
     function gameSpot(event) {
       const box = canvas.getBoundingClientRect();
       return {
-        x: (event.clientX - box.left) * canvas.width / box.width,
-        y: (event.clientY - box.top) * canvas.height / box.height
+        x: (event.clientX - box.left) * W / box.width,
+        y: (event.clientY - box.top) * H / box.height
       };
     }
 
@@ -822,7 +828,7 @@
         gameState = "playing";
         return;
       }
-      swipes[event.pointerId] = { x: spot.x, y: spot.y, who: playerCount === 1 || spot.x < canvas.width / 2 ? 0 : 1 };
+      swipes[event.pointerId] = { x: spot.x, y: spot.y, who: playerCount === 1 || spot.x < W / 2 ? 0 : 1 };
       canvas.setPointerCapture(event.pointerId);
     });
 
@@ -1119,7 +1125,7 @@
     }
 
     function popup(text, x, y, color) {
-      popups.push({ text: text, x: Math.max(60, Math.min(canvas.width - 60, x)), y: y, color: color, life: 1.1 });
+      popups.push({ text: text, x: Math.max(60, Math.min(W - 60, x)), y: y, color: color, life: 1.1 });
     }
 
     function banner(text) {
@@ -1264,9 +1270,10 @@
     // the walls never change, so we draw them once onto a hidden picture and reuse it
     function makeMazePicture(lineColor) {
       const picture = document.createElement("canvas");
-      picture.width = COLS * T;
-      picture.height = ROWS * T;
+      picture.width = COLS * T * DPR;
+      picture.height = ROWS * T * DPR;
       const p = picture.getContext("2d");
+      p.scale(DPR, DPR);
       const isWall = function (c, r) {
         if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return true;
         return MAZE[r][c] === "#";
@@ -1300,7 +1307,7 @@
 
     function drawMaze() {
       const flashing = clearTimer > 0 && Math.floor(clearTimer * 4) % 2 === 0;
-      pen.drawImage(flashing ? flashPicture : mazePicture, OX, OY);
+      pen.drawImage(flashing ? flashPicture : mazePicture, OX, OY, COLS * T, ROWS * T);
 
       // dots and power dots
       for (let r = 0; r < ROWS; r++) {
@@ -1467,7 +1474,7 @@
       pen.textAlign = "center";
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 17px sans-serif";
-      pen.fillText((isOnline() ? "🌍 WORLD TOP 3 · " : "📱 TOP 3 ON THIS DEVICE · ") + settings().label, canvas.width / 2, top);
+      pen.fillText((isOnline() ? "🌍 WORLD TOP 3 · " : "📱 TOP 3 ON THIS DEVICE · ") + settings().label, W / 2, top);
       const medals = ["🥇", "🥈", "🥉"];
       for (let i = 0; i < 3; i++) {
         const entry = board()[i];
@@ -1495,7 +1502,7 @@
       pen.textBaseline = "middle";
       pen.fillStyle = "#aab";
       pen.font = "13px sans-serif";
-      pen.fillText("#1 on " + parts.join("   ·   "), canvas.width / 2, y);
+      pen.fillText("#1 on " + parts.join("   ·   "), W / 2, y);
     }
 
     function drawPlayingAs() {
@@ -1505,7 +1512,7 @@
       pen.fillStyle = "white";
       pen.font = "16px sans-serif";
       const who = playerCount === 2 && names[1] ? names[0] + " & " + names[1] : names[0];
-      pen.fillText("👤 Playing as " + who, canvas.width / 2, 506);
+      pen.fillText("👤 Playing as " + who, W / 2, 506);
       const b = changeNameButton;
       pen.fillStyle = "#1d2340";
       pen.fillRect(b.x, b.y, b.width, b.height);
@@ -1519,7 +1526,7 @@
 
     function dimScreen() {
       pen.fillStyle = "rgba(0, 0, 0, 0.72)";
-      pen.fillRect(0, 0, canvas.width, canvas.height);
+      pen.fillRect(0, 0, W, H);
     }
 
     function drawStartScreen() {
@@ -1528,21 +1535,21 @@
       pen.textBaseline = "middle";
       pen.font = "14px sans-serif";
       pen.fillStyle = "#cfd3ee";
-      pen.fillText("▪ dot 1    ● power dot 5    🍒 bonus fruit 10+", canvas.width / 2, 72);
-      pen.fillText("Eat a power dot, then chase the blue monsters: 5, 10, 20, 40!", canvas.width / 2, 94);
-      pen.fillText("Extra life at " + settings().extraLifeAt + " points", canvas.width / 2, 116);
+      pen.fillText("▪ dot 1    ● power dot 5    🍒 bonus fruit 10+", W / 2, 72);
+      pen.fillText("Eat a power dot, then chase the blue monsters: 5, 10, 20, 40!", W / 2, 94);
+      pen.fillText("Extra life at " + settings().extraLifeAt + " points", W / 2, 116);
       pen.fillStyle = "white";
       pen.font = "bold 42px sans-serif";
-      pen.fillText("MAZE MUNCHER", canvas.width / 2, 160);
+      pen.fillText("MAZE MUNCHER", W / 2, 160);
       pen.font = "18px sans-serif";
-      pen.fillText("Eat every dot. Don't get caught!", canvas.width / 2, 198);
+      pen.fillText("Eat every dot. Don't get caught!", W / 2, 198);
       drawDifficultyButtons();
       drawLeaderboard(290);
       drawOtherBests(386);
       pen.textAlign = "center";
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 19px sans-serif";
-      pen.fillText("How many players?", canvas.width / 2, 408);
+      pen.fillText("How many players?", W / 2, 408);
       drawButtons();
       drawPlayingAs();
     }
@@ -1553,14 +1560,14 @@
       pen.textBaseline = "middle";
       pen.fillStyle = "white";
       pen.font = "bold 44px sans-serif";
-      pen.fillText("GAME OVER", canvas.width / 2, 128);
+      pen.fillText("GAME OVER", W / 2, 128);
       pen.font = "20px sans-serif";
-      pen.fillText(resultText(), canvas.width / 2, 168);
+      pen.fillText(resultText(), W / 2, 168);
       if (justAdded.length > 0) {
         const who = justAdded.map(function (e) { return e.name; }).join(" & ");
         pen.fillStyle = "#ffd75e";
         pen.font = "bold 20px sans-serif";
-        pen.fillText(newBest ? "🏆 NEW HIGH SCORE, " + justAdded[0].name + "!" : "🏆 " + who + " made the top 3!", canvas.width / 2, 196);
+        pen.fillText(newBest ? "🏆 NEW HIGH SCORE, " + justAdded[0].name + "!" : "🏆 " + who + " made the top 3!", W / 2, 196);
       }
       drawDifficultyButtons();
       drawLeaderboard(290);
@@ -1568,7 +1575,7 @@
         pen.textAlign = "center";
         pen.fillStyle = "#ff8fc7";
         pen.font = "13px sans-serif";
-        pen.fillText(onlineNote + " Saved on this device.", canvas.width / 2, 386);
+        pen.fillText(onlineNote + " Saved on this device.", W / 2, 386);
       } else {
         drawOtherBests(386);
       }
@@ -1576,9 +1583,9 @@
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 19px sans-serif";
       if (checkingScores) {
-        pen.fillText("Checking the scoreboard…", canvas.width / 2, 408);
+        pen.fillText("Checking the scoreboard…", W / 2, 408);
       } else {
-        pen.fillText("Play again?", canvas.width / 2, 408);
+        pen.fillText("Play again?", W / 2, 408);
         drawButtons();
         drawPlayingAs();
       }
@@ -1590,10 +1597,10 @@
       pen.textBaseline = "middle";
       pen.fillStyle = "white";
       pen.font = "bold 44px sans-serif";
-      pen.fillText(title, canvas.width / 2, canvas.height / 2 - 30);
+      pen.fillText(title, W / 2, H / 2 - 30);
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 19px sans-serif";
-      pen.fillText(line, canvas.width / 2, canvas.height / 2 + 20);
+      pen.fillText(line, W / 2, H / 2 + 20);
     }
 
     function drawScore(p, y) {
@@ -1612,8 +1619,9 @@
     }
 
     function draw() {
+      pen.setTransform(DPR, 0, 0, DPR, 0, 0);         // draw everything at full sharpness
       pen.fillStyle = "#05071a";
-      pen.fillRect(0, 0, canvas.width, canvas.height);
+      pen.fillRect(0, 0, W, H);
 
       pen.save();
       if (shakeTime > 0) pen.translate((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
@@ -1667,12 +1675,12 @@
       pen.textAlign = "center";
       pen.textBaseline = "top";
       pen.fillStyle = blueTime > 0 ? "#7df9ff" : "white";
-      pen.fillText(blueTime > 0 ? "😱 " + Math.ceil(blueTime) : "Level " + level, canvas.width / 2 + 40, 12);
+      pen.fillText(blueTime > 0 ? "😱 " + Math.ceil(blueTime) : "Level " + level, W / 2 + 40, 12);
       pen.textAlign = "right";
-      if (playerCount === 1) pen.fillText("❤️".repeat(Math.max(0, Math.min(8, players[0].lives))), canvas.width - 16, 12);
+      if (playerCount === 1) pen.fillText("❤️".repeat(Math.max(0, Math.min(8, players[0].lives))), W - 16, 12);
       pen.font = "13px sans-serif";
       pen.fillStyle = "#aab";
-      pen.fillText(settings().label + " · Best " + best, canvas.width - 16, 38);
+      pen.fillText(settings().label + " · Best " + best, W - 16, 38);
 
       // controls reminder
       pen.font = "14px sans-serif";
@@ -1688,7 +1696,7 @@
         hint = (playerCount === 2 ? "P1: W A S D    P2: arrow keys" : "Arrow keys or W A S D") +
           "    P: pause    M: sound " + (soundOn ? "on" : "off");
       }
-      pen.fillText(hint, canvas.width / 2, canvas.height - 8);
+      pen.fillText(hint, W / 2, H - 8);
 
       if (bannerTimer > 0 && gameState === "playing") {
         pen.globalAlpha = Math.min(1, bannerTimer);
@@ -1696,7 +1704,7 @@
         pen.font = "bold 40px sans-serif";
         pen.textAlign = "center";
         pen.textBaseline = "middle";
-        pen.fillText(bannerText, canvas.width / 2, screenY(8));
+        pen.fillText(bannerText, W / 2, screenY(8));
         pen.globalAlpha = 1;
       }
 
