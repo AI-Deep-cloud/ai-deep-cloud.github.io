@@ -1,0 +1,1714 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- tells phones to show the page at its real size instead of zoomed out -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Maze Muncher</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    /* the game area: as big as fits the screen, always 480 x 600 in shape */
+    .stage {
+      position: relative;
+      width: min(480px, 100vw, calc(95vh * 0.8));
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #05071a;
+      border: 3px solid #fff;
+      box-sizing: border-box;
+      touch-action: none;        /* swiping steers the muncher, it doesn't scroll the page */
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    /* the box where you type your name */
+    .name-form {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(300px, 82%);
+      padding: 18px;
+      background: #1d2340;
+      border: 3px solid #ffd75e;
+      border-radius: 8px;
+      box-shadow: 6px 6px 0 #000;
+      color: #fff;
+      font-family: sans-serif;
+      text-align: center;
+    }
+    .name-form .trophy { font-size: 40px; line-height: 1; }
+    .name-form h2 { margin: 8px 0 2px; font-size: 22px; color: #ffd75e; }
+    .name-form p { margin: 0 0 12px; color: #cfd3ee; }
+    .name-form input {
+      width: 100%;
+      padding: 10px;
+      font-size: 20px;
+      text-align: center;
+      background: #12152b;
+      color: #fff;
+      border: 2px solid #fff;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    .name-form input:focus { outline: none; border-color: #ffd75e; }
+    .name-form .name-label { display: block; margin: 10px 0 4px; text-align: left; font-weight: bold; font-size: 14px; color: #cfd3ee; }
+    .name-form .name-error { margin: 10px 0 0; color: #ff8fc7; font-weight: bold; }
+    .name-form .row { display: flex; gap: 8px; margin-top: 12px; }
+    .name-form button {
+      flex: 1;
+      padding: 10px;
+      font: bold 17px sans-serif;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .name-form .save { background: #ffd75e; color: #1d2340; border: 2px solid #ffd75e; }
+    .name-form .skip { background: transparent; color: #fff; border: 2px solid #fff; }
+    .hidden { display: none !important; }
+    /* link back to the arcade's home page */
+    .back {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      padding: 6px 12px;
+      background: #ffd75e;
+      color: #1d2340;
+      font: bold 15px sans-serif;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <a class="back" href="../index.html">&larr; Arcade</a>
+  <div class="stage">
+    <canvas id="game" width="480" height="600"></canvas>
+
+    <!-- asks for your name before you play -->
+    <form class="name-form hidden" id="name-form" autocomplete="off">
+      <div class="trophy">👾</div>
+      <h2>What's your name?</h2>
+      <p>It goes on the scoreboard when you get a top score.</p>
+      <label class="name-label hidden" id="name-label-1" for="name-input-1">Player 1</label>
+      <input id="name-input-1" type="text" maxlength="12" placeholder="Your name" aria-label="Player 1 name" spellcheck="false">
+      <label class="name-label hidden" id="name-label-2" for="name-input-2">Player 2</label>
+      <input class="hidden" id="name-input-2" type="text" maxlength="12" placeholder="Player 2's name" aria-label="Player 2 name" spellcheck="false">
+      <p class="name-error hidden" id="name-error" role="alert"></p>
+      <div class="row">
+        <button class="save" type="submit" id="name-go">Play ▶</button>
+        <button class="skip" type="button" id="name-cancel">Back</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    // ===============================================================
+    //  MAZE MUNCHER
+    //  Eat every dot in the maze. Four monsters hunt you, each in its own way.
+    //  Eat a power dot and they turn blue: now YOU can chase THEM.
+    //  Built the same way as our other games: STATE, INPUT, UPDATE, DRAW and the GAME LOOP.
+    // ===============================================================
+
+    // ---------------------------------------------------------------
+    // 1. SETUP
+    // ---------------------------------------------------------------
+    const canvas = document.getElementById("game");
+    const pen = canvas.getContext("2d");
+    const GAME_ID = "maze-muncher";     // this game's name in the online scoreboard
+
+    // THE MAZE. We only draw the left half: the right half is a mirror image.
+    //   #  wall        .  dot        o  power dot        (space)  empty path
+    //   -  the monsters' door        _  inside the monsters' house
+    const LEFT_HALF = [
+      "##############",
+      "#.............",
+      "#.####.#####.#",
+      "#o####.#####.#",
+      "#.####.#####.#",
+      "#.............",
+      "#.####.##.####",
+      "#.####.##.####",
+      "#......##....#",
+      "######.##### #",
+      "######.##     ",
+      "######.## ###-",
+      "######.## #___",
+      "######.## #___",
+      "      .   #___",
+      "######.## #___",
+      "######.## ####",
+      "######.##     ",
+      "######.## ####",
+      "#............#",
+      "#.####.#####.#",
+      "#o..##........",
+      "###.##.##.####",
+      "###.##.##.####",
+      "#......##....#",
+      "#.####.##.##.#",
+      "#.####.##.##.#",
+      "#.............",
+      "##############"
+    ];
+    const MAZE = LEFT_HALF.map(function (row) { return row + row.split("").reverse().join(""); });
+    const COLS = MAZE[0].length;     // 28
+    const ROWS = MAZE.length;        // 29
+    const T = 16;                    // size of one tile in pixels
+    const OX = (canvas.width - COLS * T) / 2;   // where the maze starts on the screen
+    const OY = 60;
+
+    // the four directions
+    const UP = { x: 0, y: -1 };
+    const LEFT = { x: -1, y: 0 };
+    const DOWN = { x: 0, y: 1 };
+    const RIGHT = { x: 1, y: 0 };
+    const DIRS = [UP, LEFT, DOWN, RIGHT];
+
+    // ---------------------------------------------------------------
+    // 2. STATE
+    // ---------------------------------------------------------------
+    function makePlayer(name, color) {
+      return {
+        name: name,
+        color: color,            // the muncher's color. Try changing it!
+        tx: 13, ty: 17,          // the tile it's on (or just left)
+        dir: null,               // the way it's moving
+        nextDir: null,           // the way you asked it to turn
+        lastDir: LEFT,           // the way it's facing
+        progress: 0,             // how far it is toward the next tile (0 to 1)
+        lives: 0,
+        score: 0,
+        alive: false,
+        dying: 0,                // seconds left of the "caught!" animation
+        invincible: 0,           // seconds of blinking after coming back (2 players)
+        extraLifeGiven: false,
+        chomp: 0                 // makes the mouth open and close
+      };
+    }
+    const players = [
+      makePlayer("Player 1", "#ff9f43"),
+      makePlayer("Player 2", "#ff8fc7")
+    ];
+    let playerCount = 1;
+
+    // THE MONSTERS. Each one hunts differently, like in the old arcade games.
+    function makeMonster(name, color, homeX, corner, how) {
+      return {
+        name: name, color: color, how: how,
+        homeX: homeX,            // where it waits inside the house
+        corner: corner,          // the corner it wanders to when it's not hunting
+        state: "home",           // "home", "leaving", "active", "eaten" (just eyes) or "entering"
+        frightened: false,       // blue and running away?
+        tx: 13, ty: 10, dir: null, progress: 0,     // used when walking the maze
+        fx: homeX, fy: 13,       // used when moving in and out of the house
+        waypoints: [],
+        releaseAt: 0
+      };
+    }
+    const monsters = [
+      makeMonster("Blaze", "#ff4d4d", 13,   { x: COLS - 2, y: -3 },  "chases you directly"),
+      makeMonster("Zippy", "#c56cf0", 13,   { x: 1, y: -3 },         "cuts you off by aiming ahead of you"),
+      makeMonster("Bolt",  "#2ed573", 11.5, { x: COLS - 1, y: ROWS + 1 }, "teams up with Blaze to trap you"),
+      makeMonster("Dozy",  "#ffa502", 15.5, { x: 0, y: ROWS + 1 },   "chases you, but gets shy up close")
+    ];
+
+    // game rules. Try changing these numbers!
+    const RULES = {
+      dotPoints: 1,
+      powerDotPoints: 5,
+      monsterPoints: [5, 10, 20, 40],    // 1st, 2nd, 3rd, 4th monster eaten with one power dot
+      fruit: ["🍒", "🍓", "🍊", "🍎", "🍇", "🍉", "🔔", "🔑"],
+      fruitPoints: [10, 20, 30, 40, 50, 60, 70, 80],
+      fruitSeconds: 9,
+      // the monsters wander to their corners, then hunt, then wander... (seconds)
+      modes: [["corner", 7], ["hunt", 20], ["corner", 7], ["hunt", 20], ["corner", 5], ["hunt", 20], ["corner", 5], ["hunt", 9999]]
+    };
+
+    // DIFFICULTY. Each one changes these numbers.
+    const DIFFICULTIES = {
+      easy: {
+        label: "EASY",
+        lives: 5,
+        playerSpeed: 7.2,        // tiles per second
+        monsterSpeed: 5.6,
+        blueSeconds: 9,          // how long monsters stay blue after a power dot
+        release: [0, 2, 6, 11],  // when each monster leaves the house (seconds)
+        extraLifeAt: 300
+      },
+      medium: {
+        label: "MEDIUM",
+        lives: 3,
+        playerSpeed: 7.5,
+        monsterSpeed: 6.8,
+        blueSeconds: 7,
+        release: [0, 1, 4, 8],
+        extraLifeAt: 500
+      },
+      hard: {
+        label: "HARD",
+        lives: 2,
+        playerSpeed: 7.6,
+        monsterSpeed: 7.4,
+        blueSeconds: 4.5,
+        release: [0, 0.5, 2.5, 5],
+        extraLifeAt: 800
+      }
+    };
+    const DIFFICULTY_ORDER = ["easy", "medium", "hard"];
+    let difficulty = "medium";
+    try {
+      const savedDifficulty = localStorage.getItem("mazeMuncherDifficulty");
+      if (DIFFICULTIES[savedDifficulty]) difficulty = savedDifficulty;
+    } catch (e) {}
+
+    function settings() { return DIFFICULTIES[difficulty]; }
+
+    function setDifficulty(name) {
+      if (!DIFFICULTIES[name] || name === difficulty) return;
+      difficulty = name;
+      justAdded = [];
+      newBest = false;
+      onlineNote = "";
+      best = board().length ? board()[0].score : 0;
+      try { localStorage.setItem("mazeMuncherDifficulty", difficulty); } catch (e) {}
+      sounds.fruit();
+      loadOnlineScores(name);
+    }
+
+    function stepDifficulty(direction) {
+      const i = DIFFICULTY_ORDER.indexOf(difficulty) + direction;
+      if (i >= 0 && i < DIFFICULTY_ORDER.length) setDifficulty(DIFFICULTY_ORDER[i]);
+    }
+
+    let grid = [];              // the maze, with eaten dots removed
+    let dotsLeft = 0;
+    let dotsEaten = 0;          // this level
+    let level = 1;
+    let gameState = "start";    // "start", "playing", "paused" or "gameover"
+    let readyTimer = 0;         // "READY!" before each round
+    let clearTimer = 0;         // the maze flashes when you eat every dot
+    let eatPause = 0;           // a tiny freeze when you eat a monster
+    let blueTime = 0;           // seconds the monsters stay blue
+    let monstersEaten = 0;      // with the current power dot
+    let modeIndex = 0;
+    let modeTime = 0;
+    let monsterClock = 0;       // seconds since the round started (for leaving the house)
+    let fruit = null;           // { picture, points, time }
+    let sparkles = [];
+    let popups = [];
+    let shakeTime = 0;
+    let bannerText = "";
+    let bannerTimer = 0;
+    let clock = 0;
+    let gameOverAt = -99;
+
+    function resetMaze() {
+      grid = MAZE.map(function (row) { return row.split(""); });
+      dotsLeft = 0;
+      for (const row of grid) for (const ch of row) if (ch === "." || ch === "o") dotsLeft++;
+      dotsEaten = 0;
+    }
+    resetMaze();
+
+    // ---------------------------------------------------------------
+    // TOP 3 SCORES with names: one list per difficulty on this device,
+    // plus the shared online scoreboard everyone sees
+    // ---------------------------------------------------------------
+    let scores = { easy: [], medium: [], hard: [] };
+    let names = ["", ""];
+    let justAdded = [];
+    let newBest = false;
+
+    function cleanList(list) {
+      if (!Array.isArray(list)) return [];
+      return list.filter(function (e) { return e && typeof e.score === "number"; }).slice(0, 3);
+    }
+
+    try {
+      const saved = JSON.parse(localStorage.getItem("mazeMuncherScores") || "{}");
+      for (const name of DIFFICULTY_ORDER) scores[name] = cleanList(saved[name]);
+      const savedNames = JSON.parse(localStorage.getItem("arcadeNames") || localStorage.getItem("starCatcherNames") || "[]");
+      if (Array.isArray(savedNames)) names = [savedNames[0] || "", savedNames[1] || ""];
+    } catch (e) {}
+
+    function saveLeaderboard() {
+      try {
+        localStorage.setItem("mazeMuncherScores", JSON.stringify(scores));
+        localStorage.setItem("arcadeNames", JSON.stringify(names));
+      } catch (e) {}
+    }
+
+    // the shared online scoreboard (a free Google Firebase database)
+    const FIREBASE_PROJECT = "star-catcher-891e9";
+    const DATABASE = "projects/" + FIREBASE_PROJECT + "/databases/(default)/documents";
+    const DATABASE_URL = "https://firestore.googleapis.com/v1/" + DATABASE;
+    const MAX_ONLINE_SCORE = 5000;
+
+    let onlineScores = { easy: null, medium: null, hard: null };
+    let lastOnlineCheck = -999;
+    let lastAllCheck = -999;
+    let checkingScores = false;
+    let onlineNote = "";
+
+    async function loadOnlineScores(name) {
+      try {
+        const response = await fetch(DATABASE_URL + "/arcade/" + GAME_ID + ":runQuery", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ structuredQuery: {
+            from: [{ collectionId: name }],
+            orderBy: [{ field: { fieldPath: "score" }, direction: "DESCENDING" }],
+            limit: 6
+          } })
+        });
+        if (!response.ok) throw new Error("status " + response.status);
+        const rows = await response.json();
+        onlineScores[name] = rows
+          .filter(function (row) { return row.document && row.document.fields; })
+          .map(function (row) {
+            const fields = row.document.fields;
+            return { name: fields.name ? fields.name.stringValue : "", score: Number(fields.score ? fields.score.integerValue : 0) };
+          })
+          .filter(function (entry) { return entry.name && isKidFriendly(entry.name); })
+          .slice(0, 3);
+      } catch (error) {
+        onlineScores[name] = null;
+      }
+      if (name === difficulty) best = board().length ? board()[0].score : 0;
+    }
+
+    async function sendOnlineScore(name, playerName, score) {
+      if (score > MAX_ONLINE_SCORE) return false;
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      try {
+        const response = await fetch(DATABASE_URL + ":commit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ writes: [{
+            update: {
+              name: DATABASE + "/arcade/" + GAME_ID + "/" + name + "/" + id,
+              fields: { name: { stringValue: playerName }, score: { integerValue: String(score) } }
+            },
+            updateTransforms: [{ fieldPath: "createdAt", setToServerValue: "REQUEST_TIME" }],
+            currentDocument: { exists: false }
+          }] })
+        });
+        return response.ok;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function isOnline() { return onlineScores[difficulty] !== null; }
+    function board() { return isOnline() ? onlineScores[difficulty] : scores[difficulty]; }
+    let best = board().length ? board()[0].score : 0;
+
+    function madeTopThree(score) {
+      const list = board();
+      return score > 0 && (list.length < 3 || score > list[list.length - 1].score);
+    }
+
+    function insertScore(list, entry) {
+      const longer = list.concat([entry]);
+      longer.sort(function (a, b) { return b.score - a.score; });
+      return longer.slice(0, 3);
+    }
+
+    function addScore(name, score) {
+      const entry = { name: name, score: score };
+      const level = difficulty;
+      scores[level] = insertScore(scores[level], entry);
+      saveLeaderboard();
+      if (onlineScores[level]) {
+        onlineScores[level] = insertScore(onlineScores[level], entry);
+        sendOnlineScore(level, name, score).then(function (saved) {
+          if (!saved) onlineNote = "Couldn't save that score online.";
+          loadOnlineScores(level);
+        });
+      }
+      justAdded.push(entry);
+      if (board().indexOf(entry) === 0) newBest = true;
+      best = board()[0].score;
+    }
+
+    function isJustAdded(entry) {
+      return justAdded.some(function (j) { return j.name === entry.name && j.score === entry.score; });
+    }
+
+    // ---------------------------------------------------------------
+    // KID-FRIENDLY NAMES (the same check as our other games)
+    // ---------------------------------------------------------------
+    const BLOCKED_PARTS = ["fuck", "fuk", "shit", "bitch", "cunt", "dick", "cock", "pussy", "porn", "sex",
+      "nazi", "hitler", "penis", "vagina", "boob", "slut", "whore", "bastard", "nigg", "fag", "retard",
+      "piss", "wank", "twat", "horny", "nude", "naked", "kkk"];
+    const BLOCKED_WORDS = ["ass", "arse", "asshole", "rape", "hell", "damn", "crap", "suck", "sucks",
+      "stupid", "idiot", "dumb", "loser", "hate", "ugly", "fat", "weirdo"];
+    const ALLOWED_PARTS = ["peacock", "cockatoo", "cockatiel", "cockroach", "hancock", "hitchcock",
+      "shuttlecock", "dickens", "essex", "sussex", "middlesex"];
+
+    function isKidFriendly(name) {
+      const lookAlikes = { "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "@": "a", "$": "s", "!": "i" };
+      const spaced = name.replace(/([a-z])([A-Z])/g, "$1 $2")
+        .toLowerCase()
+        .replace(/[0134578@$!]/g, function (c) { return lookAlikes[c]; });
+      let letters = spaced.replace(/[^a-z]/g, "");
+      for (const ok of ALLOWED_PARTS) letters = letters.split(ok).join("");
+      const squashed = letters.replace(/(.)\1+/g, "$1");
+      for (const part of BLOCKED_PARTS) {
+        if (letters.includes(part) || squashed.includes(part)) return false;
+      }
+      for (const word of spaced.split(/[^a-z]+/)) {
+        if (BLOCKED_WORDS.includes(word) || BLOCKED_WORDS.includes(word.replace(/(.)\1+/g, "$1"))) return false;
+      }
+      return true;
+    }
+
+    // ---------------------------------------------------------------
+    // PLAYER NAMES: asked before your first game, then remembered
+    // ---------------------------------------------------------------
+    let nameFormOpen = false;
+    let nameFormPlayers = 1;
+    let startAfterNames = false;
+
+    function nameBox(n) { return document.getElementById("name-input-" + n); }
+
+    function openNameForm(count, thenStart) {
+      nameFormOpen = true;
+      nameFormPlayers = count;
+      startAfterNames = thenStart;
+      const two = count === 2;
+      document.getElementById("name-label-1").classList.toggle("hidden", !two);
+      document.getElementById("name-label-2").classList.toggle("hidden", !two);
+      nameBox(2).classList.toggle("hidden", !two);
+      nameBox(1).value = names[0];
+      nameBox(2).value = names[1];
+      document.getElementById("name-go").textContent = thenStart ? "Play ▶" : "Save";
+      document.getElementById("name-error").classList.add("hidden");
+      document.getElementById("name-form").classList.remove("hidden");
+      nameBox(1).focus();
+      nameBox(1).select();
+    }
+
+    function closeNameForm() {
+      nameFormOpen = false;
+      document.getElementById("name-form").classList.add("hidden");
+    }
+
+    function showNameError(message, n) {
+      const error = document.getElementById("name-error");
+      error.textContent = message;
+      error.classList.remove("hidden");
+      nameBox(n).focus();
+      nameBox(n).select();
+    }
+
+    document.getElementById("name-form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      const typed = [1, 2].map(function (n) { return nameBox(n).value.replace(/\s+/g, " ").trim().slice(0, 12); });
+      for (let i = 0; i < nameFormPlayers; i++) {
+        if (!typed[i]) {
+          return showNameError(nameFormPlayers === 2 ? "Player " + (i + 1) + " needs a name first." : "Type your name first.", i + 1);
+        }
+        if (!isKidFriendly(typed[i])) return showNameError("That name isn't kid-friendly. Try another one! 🙂", i + 1);
+      }
+      names[0] = typed[0];
+      if (nameFormPlayers === 2) names[1] = typed[1];
+      saveLeaderboard();
+      closeNameForm();
+      if (startAfterNames) startGame(nameFormPlayers);
+    });
+    document.getElementById("name-cancel").addEventListener("click", closeNameForm);
+    for (const n of [1, 2]) {
+      nameBox(n).addEventListener("keydown", function (event) {
+        if (event.key === "Escape") closeNameForm();
+      });
+    }
+
+    function tryStart(count) {
+      if (clock - gameOverAt < 0.8) return;
+      if (!names[0] || (count === 2 && !names[1])) openNameForm(count, true);
+      else startGame(count);
+    }
+
+    function displayName(p) {
+      return names[players.indexOf(p)] || p.name;
+    }
+
+    function activePlayers() {
+      return players.slice(0, playerCount);
+    }
+
+    // ---------------------------------------------------------------
+    // Starting, new rounds and game over
+    // ---------------------------------------------------------------
+    function placePlayer(p) {
+      const first = p === players[0];
+      p.tx = first ? 13 : 14;
+      p.ty = 17;
+      p.progress = 0;
+      p.dir = null;
+      p.nextDir = first ? LEFT : RIGHT;
+      p.lastDir = p.nextDir;
+      p.dying = 0;
+    }
+
+    // everyone back to their starting places (after a catch, or on a new level)
+    function resetRound() {
+      const d = settings();
+      for (const p of activePlayers()) if (p.alive) placePlayer(p);
+      monsters.forEach(function (m, i) {
+        m.frightened = false;
+        m.waypoints = [];
+        m.releaseAt = d.release[i];
+        m.progress = 0;
+        if (i === 0) {                 // Blaze starts outside the house
+          m.state = "active";
+          m.tx = 13;
+          m.ty = 10;
+          m.dir = LEFT;
+        } else {
+          m.state = "home";
+          m.fx = m.homeX;
+          m.fy = 13;
+          m.dir = null;
+        }
+      });
+      blueTime = 0;
+      modeIndex = 0;
+      modeTime = 0;
+      monsterClock = 0;
+      fruit = null;
+      readyTimer = 1.6;
+    }
+
+    function startGame(count) {
+      playerCount = count;
+      const d = settings();
+      level = 1;
+      sparkles = [];
+      popups = [];
+      shakeTime = 0;
+      bannerTimer = 0;
+      clearTimer = 0;
+      eatPause = 0;
+      newBest = false;
+      for (const p of players) {
+        p.score = 0;
+        p.lives = d.lives;
+        p.alive = false;
+        p.invincible = 0;
+        p.extraLifeGiven = false;
+      }
+      for (const p of activePlayers()) p.alive = true;
+      resetMaze();
+      resetRound();
+      readyTimer = 2.2;
+      gameState = "playing";
+      sounds.start();
+    }
+
+    function nextLevel() {
+      level += 1;
+      resetMaze();
+      resetRound();
+      banner("LEVEL " + level + "!");
+    }
+
+    function endGame() {
+      gameState = "gameover";
+      gameOverAt = clock;
+      sounds.gameOver();
+      newBest = false;
+      justAdded = [];
+      onlineNote = "";
+      const finished = activePlayers().slice().sort(function (a, b) { return b.score - a.score; });
+      checkingScores = true;
+      loadOnlineScores(difficulty).then(function () {
+        checkingScores = false;
+        lastOnlineCheck = clock;
+        if (gameState !== "gameover") return;
+        if (!isOnline()) onlineNote = "Couldn't reach the online scoreboard.";
+        for (const p of finished) {
+          if (madeTopThree(p.score)) addScore(displayName(p), p.score);
+        }
+        if (justAdded.length > 0) sounds.extraLife();
+      });
+    }
+
+    // ---------------------------------------------------------------
+    // SOUND. The browser makes the beeps itself.
+    // ---------------------------------------------------------------
+    let audio = null;
+    let soundOn = true;
+    let wakaHigh = false;
+
+    function startAudio() {
+      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === "suspended") audio.resume();
+    }
+
+    function beep(pitch, length, shape, delay, loudness) {
+      if (!audio || !soundOn) return;
+      const start = audio.currentTime + (delay || 0);
+      const tone = audio.createOscillator();
+      const volume = audio.createGain();
+      tone.type = shape || "square";
+      tone.frequency.setValueAtTime(pitch, start);
+      volume.gain.setValueAtTime(loudness || 0.08, start);
+      volume.gain.exponentialRampToValueAtTime(0.001, start + length);
+      tone.connect(volume);
+      volume.connect(audio.destination);
+      tone.start(start);
+      tone.stop(start + length);
+    }
+
+    function tune(notes, length, shape, gap) {
+      notes.forEach(function (pitch, i) { beep(pitch, length, shape, i * (gap || length)); });
+    }
+
+    const sounds = {
+      waka:      function () { wakaHigh = !wakaHigh; beep(wakaHigh ? 520 : 390, 0.07, "triangle", 0, 0.07); },
+      powerDot:  function () { tune([880, 740, 620, 520, 440], 0.07, "square", 0.05); },
+      eatMonster: function () { tune([400, 600, 800, 1100], 0.06, "square", 0.04); },
+      caught:    function () { tune([700, 620, 540, 460, 380, 300, 220, 150], 0.12, "sawtooth", 0.11); },
+      fruit:     function () { beep(990, 0.07); beep(1320, 0.12, "square", 0.06); },
+      extraLife: function () { tune([523, 659, 784, 1047, 1319], 0.1, "triangle", 0.08); },
+      levelUp:   function () { tune([523, 659, 784, 1047, 784, 1047], 0.12, "square", 0.1); },
+      start:     function () { tune([523, 784, 659, 1047, 784, 988, 1047], 0.13, "square", 0.14); },
+      gameOver:  function () { beep(392, 0.25, "triangle"); beep(330, 0.25, "triangle", 0.25); beep(262, 0.6, "triangle", 0.5); }
+    };
+
+    // ---------------------------------------------------------------
+    // 3. INPUT
+    // ---------------------------------------------------------------
+    function opposite(a, b) { return a && b && a.x === -b.x && a.y === -b.y; }
+
+    // turn around on the spot (used for quick U-turns)
+    function reverse(a) {
+      if (!a.dir) return;
+      if (a.progress > 0) {
+        a.tx = (a.tx + a.dir.x + COLS) % COLS;
+        a.ty += a.dir.y;
+        a.progress = 1 - a.progress;
+      }
+      a.dir = { x: -a.dir.x, y: -a.dir.y };
+    }
+
+    // ask a muncher to go a direction (it turns at the next corner where it can)
+    function steer(p, direction) {
+      if (gameState !== "playing" || !p.alive || p.dying > 0) return;
+      p.nextDir = direction;
+      if (opposite(p.dir, direction)) {
+        reverse(p);
+        p.lastDir = p.dir;
+      }
+    }
+
+    const KEYS_P1 = { w: UP, a: LEFT, s: DOWN, d: RIGHT };
+    const KEYS_P2 = { ArrowUp: UP, ArrowLeft: LEFT, ArrowDown: DOWN, ArrowRight: RIGHT };
+
+    document.addEventListener("keydown", function (event) {
+      if (nameFormOpen || checkingScores || event.target.tagName === "INPUT") return;
+      if (event.key.startsWith("Arrow") || event.key === " ") event.preventDefault();
+      startAudio();
+
+      if (gameState === "start" || gameState === "gameover") {
+        if (event.repeat) return;
+        if (event.key === "1") tryStart(1);
+        if (event.key === "2") tryStart(2);
+        if (event.key === " " || event.key === "Enter") tryStart(playerCount);
+        if (event.key === "ArrowLeft") stepDifficulty(-1);
+        if (event.key === "ArrowRight") stepDifficulty(1);
+        if (event.key.toLowerCase() === "n") {
+          event.preventDefault();
+          openNameForm(playerCount, false);
+        }
+      } else if (gameState === "playing") {
+        const wasd = KEYS_P1[event.key.toLowerCase()];
+        const arrow = KEYS_P2[event.key];
+        if (playerCount === 1) {
+          if (wasd || arrow) steer(players[0], wasd || arrow);
+        } else {
+          if (wasd) steer(players[0], wasd);
+          if (arrow) steer(players[1], arrow);
+        }
+      }
+
+      const letter = event.key.toLowerCase();
+      if (letter === "p") {
+        if (gameState === "playing") gameState = "paused";
+        else if (gameState === "paused") gameState = "playing";
+      }
+      if (letter === "m") soundOn = !soundOn;
+    });
+
+    // TOUCH and MOUSE: swipe to steer. With 2 players, the left half is Player 1 and the right half Player 2.
+    const touchScreen = window.matchMedia("(pointer: coarse)").matches;
+    let swipes = {};
+
+    function gameSpot(event) {
+      const box = canvas.getBoundingClientRect();
+      return {
+        x: (event.clientX - box.left) * canvas.width / box.width,
+        y: (event.clientY - box.top) * canvas.height / box.height
+      };
+    }
+
+    const buttons = [
+      { label: "1 PLAYER",  players: 1, x: 50,  y: 425, width: 180, height: 56 },
+      { label: "2 PLAYERS", players: 2, x: 250, y: 425, width: 180, height: 56 }
+    ];
+    const difficultyButtons = [
+      { name: "easy",   x: 48,  y: 222, width: 120, height: 38 },
+      { name: "medium", x: 180, y: 222, width: 120, height: 38 },
+      { name: "hard",   x: 312, y: 222, width: 120, height: 38 }
+    ];
+    const changeNameButton = { x: 160, y: 528, width: 160, height: 34 };
+
+    function inside(spot, box) {
+      return spot.x > box.x && spot.x < box.x + box.width &&
+             spot.y > box.y && spot.y < box.y + box.height;
+    }
+
+    canvas.addEventListener("pointerdown", function (event) {
+      startAudio();
+      if (nameFormOpen || checkingScores) return;
+      const spot = gameSpot(event);
+
+      if (gameState === "start" || gameState === "gameover") {
+        for (const b of difficultyButtons) {
+          if (inside(spot, b)) setDifficulty(b.name);
+        }
+        for (const b of buttons) {
+          if (inside(spot, b)) tryStart(b.players);
+        }
+        if (inside(spot, changeNameButton)) openNameForm(playerCount, false);
+        return;
+      }
+      if (gameState === "paused") {
+        gameState = "playing";
+        return;
+      }
+      swipes[event.pointerId] = { x: spot.x, y: spot.y, who: playerCount === 1 || spot.x < canvas.width / 2 ? 0 : 1 };
+      canvas.setPointerCapture(event.pointerId);
+    });
+
+    canvas.addEventListener("pointermove", function (event) {
+      const swipe = swipes[event.pointerId];
+      if (!swipe) return;
+      const spot = gameSpot(event);
+      const dx = spot.x - swipe.x;
+      const dy = spot.y - swipe.y;
+      if (Math.abs(dx) < 18 && Math.abs(dy) < 18) return;       // not far enough to count yet
+      const direction = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? RIGHT : LEFT) : (dy > 0 ? DOWN : UP);
+      steer(players[swipe.who], direction);
+      swipe.x = spot.x;                                          // keep swiping without lifting your finger
+      swipe.y = spot.y;
+    });
+
+    function endSwipe(event) { delete swipes[event.pointerId]; }
+    canvas.addEventListener("pointerup", endSwipe);
+    canvas.addEventListener("pointercancel", endSwipe);
+
+    function refreshScoresSoon() {
+      lastOnlineCheck = -999;
+      lastAllCheck = -999;
+    }
+
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden && gameState === "playing") gameState = "paused";
+      if (!document.hidden) refreshScoresSoon();
+    });
+    window.addEventListener("focus", refreshScoresSoon);
+
+    // ---------------------------------------------------------------
+    // Helper functions
+    // ---------------------------------------------------------------
+    function tileAt(c, r) {
+      if (r < 0 || r >= ROWS) return "#";
+      return grid[r][(c + COLS) % COLS];          // the side tunnels wrap around
+    }
+
+    function canWalk(c, r) {
+      const ch = tileAt(c, r);
+      return ch === "." || ch === "o" || ch === " ";
+    }
+
+    function inTunnel(a) {
+      return a.ty === 14 && (a.tx <= 5 || a.tx >= COLS - 6);
+    }
+
+    // where something is right now, in tiles (it can be partway between two tiles)
+    function spot(a) {
+      if (a.state === "home" || a.state === "leaving" || a.state === "entering") return { x: a.fx, y: a.fy };
+      if (!a.dir) return { x: a.tx, y: a.ty };
+      return { x: a.tx + a.dir.x * a.progress, y: a.ty + a.dir.y * a.progress };
+    }
+
+    function screenX(x) { return OX + x * T + T / 2; }
+    function screenY(y) { return OY + y * T + T / 2; }
+
+    // MOVING ON THE GRID: walk toward the next tile; at each tile, decide where to go next
+    function walk(a, distance, chooseDir, arrive) {
+      let safety = 0;
+      while (distance > 0 && safety++ < 20) {
+        if (!a.dir) {
+          a.dir = chooseDir(a);
+          if (!a.dir) return;
+        }
+        const step = Math.min(distance, 1 - a.progress);
+        a.progress += step;
+        distance -= step;
+        if (a.progress >= 0.999) {
+          a.tx = (a.tx + a.dir.x + COLS) % COLS;
+          a.ty += a.dir.y;
+          a.progress = 0;
+          if (arrive) arrive(a);
+          a.dir = chooseDir(a);
+          if (!a.dir) return;
+        }
+      }
+    }
+
+    function playerChoose(p) {
+      if (p.nextDir && canWalk(p.tx + p.nextDir.x, p.ty + p.nextDir.y)) {
+        p.lastDir = p.nextDir;
+        return p.nextDir;
+      }
+      if (p.dir && canWalk(p.tx + p.dir.x, p.ty + p.dir.y)) return p.dir;
+      return null;          // a wall: stop and wait
+    }
+
+    function playerArrive(p) {
+      const ch = grid[p.ty][p.tx];
+      if (ch === ".") {
+        grid[p.ty][p.tx] = " ";
+        addPoints(p, RULES.dotPoints);
+        dotEaten();
+        sounds.waka();
+      } else if (ch === "o") {
+        grid[p.ty][p.tx] = " ";
+        addPoints(p, RULES.powerDotPoints);
+        dotEaten();
+        powerDot();
+      }
+    }
+
+    function dotEaten() {
+      dotsLeft -= 1;
+      dotsEaten += 1;
+      if (dotsEaten === 70 || dotsEaten === 170) {           // bonus fruit appears twice a level
+        const i = Math.min(level - 1, RULES.fruit.length - 1);
+        fruit = { picture: RULES.fruit[i], points: RULES.fruitPoints[i], time: RULES.fruitSeconds };
+      }
+    }
+
+    function addPoints(p, amount) {
+      p.score += amount;
+      const d = settings();
+      if (!p.extraLifeGiven && p.score >= d.extraLifeAt) {   // one extra life per game
+        p.extraLifeGiven = true;
+        p.lives += 1;
+        popup("+1 LIFE!", screenX(spot(p).x), screenY(spot(p).y) - 20, "#ff8fc7");
+        sounds.extraLife();
+      }
+    }
+
+    // a POWER DOT: the monsters turn blue and run away
+    function powerDot() {
+      const d = settings();
+      blueTime = d.blueSeconds * Math.max(0.35, 1 - (level - 1) * 0.1);
+      monstersEaten = 0;
+      for (const m of monsters) {
+        if (m.state === "eaten" || m.state === "entering") continue;
+        m.frightened = true;
+        if (m.state === "active") reverse(m);
+      }
+      sounds.powerDot();
+    }
+
+    // where each monster is heading
+    function monsterTarget(m) {
+      if (m.state === "eaten") return { x: 13, y: 10 };               // back home
+      if (RULES.modes[modeIndex][0] === "corner") return m.corner;
+      const prey = closestMuncher(spot(m));
+      if (!prey) return m.corner;
+      const at = { x: prey.tx, y: prey.ty };
+      const facing = prey.lastDir || LEFT;
+      if (m.name === "Blaze") return at;                                // straight at you
+      if (m.name === "Zippy") return { x: at.x + facing.x * 4, y: at.y + facing.y * 4 };   // 4 tiles ahead of you
+      if (m.name === "Bolt") {                                          // uses Blaze's position to trap you
+        const pivot = { x: at.x + facing.x * 2, y: at.y + facing.y * 2 };
+        const blaze = spot(monsters[0]);
+        return { x: pivot.x * 2 - blaze.x, y: pivot.y * 2 - blaze.y };
+      }
+      const here = spot(m);                                             // Dozy: shy when close
+      const distance = Math.hypot(here.x - at.x, here.y - at.y);
+      return distance > 8 ? at : m.corner;
+    }
+
+    function closestMuncher(from) {
+      let closest = null;
+      let closestDistance = Infinity;
+      for (const p of activePlayers()) {
+        if (!p.alive || p.dying > 0) continue;
+        const s = spot(p);
+        const distance = Math.hypot(s.x - from.x, s.y - from.y);
+        if (distance < closestDistance) {
+          closest = p;
+          closestDistance = distance;
+        }
+      }
+      return closest;
+    }
+
+    // at each tile, a monster picks the way that gets it closest to its target (it never turns back)
+    function monsterChoose(m) {
+      if (m.state !== "active" && m.state !== "eaten") return null;
+      const options = DIRS.filter(function (d) {
+        return !opposite(m.dir, d) && canWalk(m.tx + d.x, m.ty + d.y);
+      });
+      if (options.length === 0) return m.dir ? { x: -m.dir.x, y: -m.dir.y } : null;
+      if (m.frightened && m.state === "active") return options[Math.floor(Math.random() * options.length)];
+      const target = monsterTarget(m);
+      let bestDir = options[0];
+      let bestDistance = Infinity;
+      for (const d of options) {
+        const dx = m.tx + d.x - target.x;
+        const dy = m.ty + d.y - target.y;
+        if (dx * dx + dy * dy < bestDistance) {
+          bestDistance = dx * dx + dy * dy;
+          bestDir = d;
+        }
+      }
+      return bestDir;
+    }
+
+    function monsterArrive(m) {
+      if (m.state === "eaten" && m.tx === 13 && m.ty === 10) {           // the eyes reached the door
+        m.state = "entering";
+        m.fx = 13;
+        m.fy = 10;
+        m.waypoints = [{ x: 13, y: 13 }];
+        m.dir = null;
+      }
+    }
+
+    function monsterSpeed(m) {
+      const d = settings();
+      if (m.state === "eaten") return 14;
+      if (m.state === "leaving" || m.state === "entering") return m.state === "entering" ? 8 : 4;
+      if (inTunnel(m)) return d.monsterSpeed * 0.5;
+      if (m.frightened) return d.monsterSpeed * 0.6;
+      return d.monsterSpeed * (1 + Math.min(0.25, (level - 1) * 0.04));
+    }
+
+    function playerSpeed() {
+      return settings().playerSpeed * (1 + Math.min(0.12, (level - 1) * 0.02));
+    }
+
+    function updateMonster(m, dt) {
+      if (m.state === "home") {
+        m.fy = 13 + Math.sin(clock * 6 + m.homeX) * 0.3;               // bob up and down while waiting
+        if (monsterClock >= m.releaseAt) {
+          m.state = "leaving";
+          m.waypoints = [{ x: 13, y: 13 }, { x: 13, y: 10 }];
+        }
+        return;
+      }
+      if (m.state === "leaving" || m.state === "entering") {
+        let move = monsterSpeed(m) * dt;
+        while (move > 0 && m.waypoints.length > 0) {
+          const target = m.waypoints[0];
+          const dx = target.x - m.fx;
+          const dy = target.y - m.fy;
+          const distance = Math.hypot(dx, dy);
+          if (distance <= move) {
+            m.fx = target.x;
+            m.fy = target.y;
+            move -= distance;
+            m.waypoints.shift();
+          } else {
+            m.fx += dx / distance * move;
+            m.fy += dy / distance * move;
+            move = 0;
+          }
+        }
+        if (m.waypoints.length === 0) {
+          if (m.state === "entering") {                                // healed: go back out
+            m.state = "leaving";
+            m.waypoints = [{ x: 13, y: 10 }];
+          } else {                                                    // out of the house: start hunting
+            m.state = "active";
+            m.tx = 13;
+            m.ty = 10;
+            m.progress = 0;
+            m.dir = Math.random() < 0.5 ? LEFT : RIGHT;
+          }
+        }
+        return;
+      }
+      walk(m, monsterSpeed(m) * dt, monsterChoose, monsterArrive);
+    }
+
+    function caught(p) {
+      p.dying = 1.3;
+      sounds.caught();
+    }
+
+    // after the "caught!" animation
+    function afterCaught(p) {
+      p.lives -= 1;
+      if (p.lives <= 0) {
+        p.alive = false;
+        if (playerCount === 2) popup(displayName(p) + " is out!", 240, 300, "#ff6b6b");
+      } else if (playerCount === 1) {
+        resetRound();                                                  // everyone back to the start
+      } else {
+        placePlayer(p);                                                // just this muncher comes back
+        p.invincible = 2.5;
+      }
+      if (!activePlayers().some(function (q) { return q.alive; })) endGame();
+    }
+
+    function burst(x, y, colors, power, count) {
+      colors = colors || ["#ffd75e", "white"];
+      power = power || 260;
+      for (let i = 0; i < (count || 24); i++) {
+        sparkles.push({
+          x: x, y: y,
+          moveX: (Math.random() - 0.5) * power,
+          moveY: (Math.random() - 0.5) * power,
+          life: 0.6,
+          color: colors[Math.floor(Math.random() * colors.length)]
+        });
+      }
+    }
+
+    function popup(text, x, y, color) {
+      popups.push({ text: text, x: Math.max(60, Math.min(canvas.width - 60, x)), y: y, color: color, life: 1.1 });
+    }
+
+    function banner(text) {
+      bannerText = text;
+      bannerTimer = 1.6;
+    }
+
+    // ---------------------------------------------------------------
+    // 4. UPDATE
+    // ---------------------------------------------------------------
+    function update(dt) {
+      clock += dt;
+
+      for (const s of sparkles) {
+        s.x += s.moveX * dt;
+        s.y += s.moveY * dt;
+        s.life -= dt;
+      }
+      sparkles = sparkles.filter(function (s) { return s.life > 0; });
+      for (const word of popups) {
+        word.y -= 30 * dt;
+        word.life -= dt;
+      }
+      popups = popups.filter(function (word) { return word.life > 0; });
+      if (shakeTime > 0) shakeTime -= dt;
+      if (bannerTimer > 0) bannerTimer -= dt;
+
+      // keep the scoreboard up to date
+      const onMenu = gameState === "start" || gameState === "gameover";
+      if (!document.hidden && !checkingScores) {
+        if (clock - lastOnlineCheck > (onMenu ? 10 : 30)) {
+          lastOnlineCheck = clock;
+          loadOnlineScores(difficulty);
+        }
+        if (onMenu && clock - lastAllCheck > 30) {
+          lastAllCheck = clock;
+          for (const name of DIFFICULTY_ORDER) {
+            if (name !== difficulty) loadOnlineScores(name);
+          }
+        }
+      }
+
+      if (gameState !== "playing") return;
+
+      // short freezes: eating a monster, clearing the maze, "READY!"
+      if (eatPause > 0) { eatPause -= dt; return; }
+      if (clearTimer > 0) {
+        clearTimer -= dt;
+        if (clearTimer <= 0) nextLevel();
+        return;
+      }
+      if (readyTimer > 0) { readyTimer -= dt; return; }
+
+      // the "caught!" animation
+      for (const p of activePlayers()) {
+        if (p.dying > 0) {
+          p.dying -= dt;
+          if (p.dying <= 0) afterCaught(p);
+        }
+      }
+      if (gameState !== "playing") return;
+      if (playerCount === 1 && players[0].dying > 0) return;        // the world waits while you're caught
+
+      // timers: blue monsters, and the monsters' "wander / hunt" pattern
+      if (blueTime > 0) {
+        blueTime -= dt;
+        if (blueTime <= 0) {
+          blueTime = 0;
+          for (const m of monsters) m.frightened = false;
+        }
+      } else {
+        modeTime += dt;
+        if (modeTime >= RULES.modes[modeIndex][1] && modeIndex < RULES.modes.length - 1) {
+          modeTime = 0;
+          modeIndex += 1;
+          for (const m of monsters) if (m.state === "active") reverse(m);   // monsters turn around when they switch
+        }
+      }
+      monsterClock += dt;
+      if (fruit) {
+        fruit.time -= dt;
+        if (fruit.time <= 0) fruit = null;
+      }
+
+      // move the munchers
+      for (const p of activePlayers()) {
+        if (!p.alive || p.dying > 0) continue;
+        p.invincible = Math.max(0, p.invincible - dt);
+        const wasMoving = !!p.dir;
+        walk(p, playerSpeed() * dt, playerChoose, playerArrive);
+        if (wasMoving || p.dir) p.chomp += dt * 18;
+      }
+
+      // move the monsters
+      for (const m of monsters) updateMonster(m, dt);
+
+      // bumping into things
+      for (const p of activePlayers()) {
+        if (!p.alive || p.dying > 0) continue;
+        const ps = spot(p);
+        if (fruit && Math.hypot(ps.x - 13.5, ps.y - 17) < 0.8) {          // bonus fruit
+          addPoints(p, fruit.points);
+          popup("+" + fruit.points, screenX(13.5), screenY(17) - 10, "#ff8fc7");
+          burst(screenX(13.5), screenY(17), ["#ff8fc7", "white"]);
+          sounds.fruit();
+          fruit = null;
+        }
+        for (const m of monsters) {
+          if (m.state === "eaten" || m.state === "entering" || m.state === "home") continue;
+          const ms = spot(m);
+          if (Math.hypot(ps.x - ms.x, ps.y - ms.y) > 0.65) continue;
+          if (m.frightened && m.state === "active") {                     // gotcha!
+            const points = RULES.monsterPoints[Math.min(monstersEaten, RULES.monsterPoints.length - 1)];
+            monstersEaten += 1;
+            addPoints(p, points);
+            m.state = "eaten";
+            m.frightened = false;
+            popup("+" + points, screenX(ms.x), screenY(ms.y) - 10, "#7df9ff");
+            burst(screenX(ms.x), screenY(ms.y), ["#7df9ff", "white"]);
+            eatPause = 0.45;
+            sounds.eatMonster();
+          } else if (!m.frightened && p.invincible <= 0) {                 // caught!
+            caught(p);
+            shakeTime = 0.3;
+            break;
+          }
+        }
+      }
+
+      // every dot eaten? next level!
+      if (dotsLeft <= 0 && clearTimer <= 0) {
+        clearTimer = 2.2;
+        blueTime = 0;
+        for (const m of monsters) m.frightened = false;
+        sounds.levelUp();
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 5. DRAW
+    // ---------------------------------------------------------------
+    // the walls never change, so we draw them once onto a hidden picture and reuse it
+    function makeMazePicture(lineColor) {
+      const picture = document.createElement("canvas");
+      picture.width = COLS * T;
+      picture.height = ROWS * T;
+      const p = picture.getContext("2d");
+      const isWall = function (c, r) {
+        if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return true;
+        return MAZE[r][c] === "#";
+      };
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const ch = MAZE[r][c];
+          if (ch === "-") {                                   // the monsters' door
+            p.fillStyle = "#ff8fc7";
+            p.fillRect(c * T, r * T + T / 2 - 2, T, 4);
+            continue;
+          }
+          if (ch !== "#") continue;
+          p.fillStyle = "#0b1240";
+          p.fillRect(c * T, r * T, T, T);
+          p.strokeStyle = lineColor;
+          p.lineWidth = 2;
+          p.beginPath();
+          // draw a line on each side that faces a path
+          if (!isWall(c, r - 1)) { p.moveTo(c * T, r * T + 2); p.lineTo(c * T + T, r * T + 2); }
+          if (!isWall(c, r + 1)) { p.moveTo(c * T, r * T + T - 2); p.lineTo(c * T + T, r * T + T - 2); }
+          if (!isWall(c - 1, r)) { p.moveTo(c * T + 2, r * T); p.lineTo(c * T + 2, r * T + T); }
+          if (!isWall(c + 1, r)) { p.moveTo(c * T + T - 2, r * T); p.lineTo(c * T + T - 2, r * T + T); }
+          p.stroke();
+        }
+      }
+      return picture;
+    }
+    const mazePicture = makeMazePicture("#4d7cff");
+    const flashPicture = makeMazePicture("#ffffff");
+
+    function drawMaze() {
+      const flashing = clearTimer > 0 && Math.floor(clearTimer * 4) % 2 === 0;
+      pen.drawImage(flashing ? flashPicture : mazePicture, OX, OY);
+
+      // dots and power dots
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const ch = grid[r][c];
+          if (ch === ".") {
+            pen.fillStyle = "#ffd9b3";
+            pen.fillRect(screenX(c) - 2, screenY(r) - 2, 4, 4);
+          } else if (ch === "o" && (gameState !== "playing" || Math.sin(clock * 8) > -0.4)) {
+            pen.fillStyle = "#ffd9b3";
+            pen.beginPath();
+            pen.arc(screenX(c), screenY(r), 6, 0, Math.PI * 2);
+            pen.fill();
+          }
+        }
+      }
+
+      if (fruit) {
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.font = "18px sans-serif";
+        pen.fillText(fruit.picture, screenX(13.5), screenY(17));
+      }
+    }
+
+    // OUR MUNCHER: a round little monster with big eyes and a chomping mouth
+    function drawMuncher(p) {
+      if (p.invincible > 0 && Math.sin(clock * 30) > 0.3) return;      // blink after coming back
+      const s = spot(p);
+      const x = screenX(s.x);
+      const y = screenY(s.y);
+      let size = 7.5;
+      if (p.dying > 0) size = 7.5 * Math.max(0, p.dying / 1.3);       // shrinks when caught
+      if (size <= 0.2) return;
+      const face = p.lastDir || LEFT;
+      const open = p.dying > 0 ? 0 : (Math.sin(p.chomp) + 1) / 2;     // 0 = shut, 1 = wide open
+
+      pen.save();
+      pen.translate(x, y);
+      if (p.dying > 0) pen.rotate((1.3 - p.dying) * 10);
+      pen.fillStyle = p.color;                                         // body
+      pen.beginPath();
+      pen.arc(0, 0, size, 0, Math.PI * 2);
+      pen.fill();
+      pen.strokeStyle = "white";
+      pen.lineWidth = 1.5;
+      pen.stroke();
+      // mouth on the side it's facing
+      pen.fillStyle = "#3a0d0d";
+      pen.beginPath();
+      pen.ellipse(face.x * size * 0.45, face.y * size * 0.45 + (face.y === 0 ? size * 0.25 : 0),
+        size * (face.y === 0 ? 0.35 : 0.5), size * (0.12 + 0.35 * open) * (face.y === 0 ? 1 : 0.7), 0, 0, Math.PI * 2);
+      pen.fill();
+      // eyes (pupils look where it's going)
+      for (const side of [-1, 1]) {
+        const ex = side * size * 0.35 + face.x * size * 0.15;
+        const ey = -size * 0.35 + face.y * size * 0.1;
+        pen.fillStyle = "white";
+        pen.beginPath();
+        pen.arc(ex, ey, size * 0.26, 0, Math.PI * 2);
+        pen.fill();
+        pen.fillStyle = "#111";
+        pen.beginPath();
+        pen.arc(ex + face.x * size * 0.1, ey + face.y * size * 0.1, size * 0.12, 0, Math.PI * 2);
+        pen.fill();
+      }
+      pen.restore();
+
+      if (playerCount === 2) {
+        pen.fillStyle = "white";
+        pen.font = "bold 10px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "bottom";
+        pen.fillText(p === players[0] ? "P1" : "P2", x, y - 9);
+      }
+    }
+
+    // THE MONSTERS: round bugs with antennae
+    function drawMonster(m) {
+      const s = spot(m);
+      const x = screenX(s.x);
+      const y = screenY(s.y);
+      const facing = m.dir || DOWN;
+      const blue = m.frightened && m.state !== "eaten";
+      const endingSoon = blue && blueTime < 2 && Math.sin(clock * 20) > 0;
+
+      if (m.state !== "eaten" && m.state !== "entering") {
+        const body = blue ? (endingSoon ? "#ffffff" : "#2d3dff") : m.color;
+        pen.strokeStyle = body;                                        // antennae
+        pen.lineWidth = 1.5;
+        pen.beginPath();
+        pen.moveTo(x - 3, y - 6); pen.lineTo(x - 5, y - 11);
+        pen.moveTo(x + 3, y - 6); pen.lineTo(x + 5, y - 11);
+        pen.stroke();
+        pen.fillStyle = body;
+        pen.beginPath();
+        pen.arc(x - 5, y - 11, 1.8, 0, Math.PI * 2);
+        pen.arc(x + 5, y - 11, 1.8, 0, Math.PI * 2);
+        pen.fill();
+        pen.beginPath();                                               // body
+        pen.arc(x, y, 7.5, 0, Math.PI * 2);
+        pen.fill();
+        pen.fillRect(x - 6, y + 4, 3, 4);                              // feet (they wiggle)
+        pen.fillRect(x + 3, y + 4, 3, 4);
+        if (Math.sin(clock * 16) > 0) pen.fillRect(x - 1.5, y + 5, 3, 3);
+      }
+
+      if (blue) {                                                      // scared face
+        pen.fillStyle = endingSoon ? "#ff4d4d" : "#ffd9b3";
+        pen.fillRect(x - 4, y - 3, 2.5, 2.5);
+        pen.fillRect(x + 1.5, y - 3, 2.5, 2.5);
+        pen.strokeStyle = endingSoon ? "#ff4d4d" : "#ffd9b3";
+        pen.lineWidth = 1;
+        pen.beginPath();
+        pen.moveTo(x - 4.5, y + 3);
+        for (let i = 0; i < 4; i++) pen.lineTo(x - 3 + i * 2.5, y + (i % 2 === 0 ? 1.5 : 3));
+        pen.stroke();
+        return;
+      }
+      for (const side of [-1, 1]) {                                    // eyes (also all that's left when eaten)
+        const ex = x + side * 3;
+        const ey = y - 1.5;
+        pen.fillStyle = "white";
+        pen.beginPath();
+        pen.ellipse(ex, ey, 2.6, 3.2, 0, 0, Math.PI * 2);
+        pen.fill();
+        pen.fillStyle = "#1b1bd6";
+        pen.beginPath();
+        pen.arc(ex + facing.x * 1.2, ey + facing.y * 1.4, 1.4, 0, Math.PI * 2);
+        pen.fill();
+      }
+    }
+
+    function drawButtons() {
+      for (const b of buttons) {
+        pen.fillStyle = "#ffd75e";
+        pen.fillRect(b.x, b.y, b.width, b.height);
+        pen.fillStyle = "#1d2340";
+        pen.font = "bold 20px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText(b.label, b.x + b.width / 2, b.y + b.height / 2);
+      }
+    }
+
+    function drawDifficultyButtons() {
+      for (const b of difficultyButtons) {
+        const picked = b.name === difficulty;
+        pen.fillStyle = picked ? "#ffd75e" : "rgba(255, 255, 255, 0.08)";
+        pen.fillRect(b.x, b.y, b.width, b.height);
+        pen.strokeStyle = picked ? "#ffd75e" : "#8a8fb0";
+        pen.lineWidth = 2;
+        pen.strokeRect(b.x, b.y, b.width, b.height);
+        pen.fillStyle = picked ? "#1d2340" : "white";
+        pen.font = "bold 17px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText(DIFFICULTIES[b.name].label, b.x + b.width / 2, b.y + b.height / 2 + 1);
+      }
+    }
+
+    function drawLeaderboard(top) {
+      pen.textBaseline = "middle";
+      pen.textAlign = "center";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 17px sans-serif";
+      pen.fillText((isOnline() ? "🌍 WORLD TOP 3 · " : "📱 TOP 3 ON THIS DEVICE · ") + settings().label, canvas.width / 2, top);
+      const medals = ["🥇", "🥈", "🥉"];
+      for (let i = 0; i < 3; i++) {
+        const entry = board()[i];
+        const y = top + 28 + i * 24;
+        const isNew = entry && isJustAdded(entry);
+        pen.font = (isNew ? "bold " : "") + "18px sans-serif";
+        pen.fillStyle = isNew ? "#ffd75e" : (entry ? "white" : "#8a8fb0");
+        pen.textAlign = "left";
+        const shownName = entry ? (isKidFriendly(entry.name) ? entry.name : "★★★") : "-----";
+        pen.fillText(medals[i] + "  " + shownName, 125, y);
+        pen.textAlign = "right";
+        pen.fillText(entry ? String(entry.score) : "", 355, y);
+      }
+    }
+
+    function drawOtherBests(y) {
+      const parts = [];
+      for (const name of DIFFICULTY_ORDER) {
+        if (name === difficulty) continue;
+        const list = onlineScores[name] || scores[name];
+        const top = list[0];
+        parts.push(DIFFICULTIES[name].label + ": " + (top && isKidFriendly(top.name) ? top.name + " " + top.score : "—"));
+      }
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "#aab";
+      pen.font = "13px sans-serif";
+      pen.fillText("#1 on " + parts.join("   ·   "), canvas.width / 2, y);
+    }
+
+    function drawPlayingAs() {
+      if (!names[0]) return;
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "16px sans-serif";
+      const who = playerCount === 2 && names[1] ? names[0] + " & " + names[1] : names[0];
+      pen.fillText("👤 Playing as " + who, canvas.width / 2, 506);
+      const b = changeNameButton;
+      pen.fillStyle = "#1d2340";
+      pen.fillRect(b.x, b.y, b.width, b.height);
+      pen.strokeStyle = "#8a8fb0";
+      pen.lineWidth = 2;
+      pen.strokeRect(b.x, b.y, b.width, b.height);
+      pen.fillStyle = "#cfd3ee";
+      pen.font = "bold 15px sans-serif";
+      pen.fillText("✏️ Change name", b.x + b.width / 2, b.y + b.height / 2 + 1);
+    }
+
+    function dimScreen() {
+      pen.fillStyle = "rgba(0, 0, 0, 0.72)";
+      pen.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function drawStartScreen() {
+      dimScreen();
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.font = "14px sans-serif";
+      pen.fillStyle = "#cfd3ee";
+      pen.fillText("▪ dot 1    ● power dot 5    🍒 bonus fruit 10+", canvas.width / 2, 72);
+      pen.fillText("Eat a power dot, then chase the blue monsters: 5, 10, 20, 40!", canvas.width / 2, 94);
+      pen.fillText("Extra life at " + settings().extraLifeAt + " points", canvas.width / 2, 116);
+      pen.fillStyle = "white";
+      pen.font = "bold 42px sans-serif";
+      pen.fillText("MAZE MUNCHER", canvas.width / 2, 160);
+      pen.font = "18px sans-serif";
+      pen.fillText("Eat every dot. Don't get caught!", canvas.width / 2, 198);
+      drawDifficultyButtons();
+      drawLeaderboard(290);
+      drawOtherBests(386);
+      pen.textAlign = "center";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 19px sans-serif";
+      pen.fillText("How many players?", canvas.width / 2, 408);
+      drawButtons();
+      drawPlayingAs();
+    }
+
+    function drawGameOverScreen() {
+      dimScreen();
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "bold 44px sans-serif";
+      pen.fillText("GAME OVER", canvas.width / 2, 128);
+      pen.font = "20px sans-serif";
+      pen.fillText(resultText(), canvas.width / 2, 168);
+      if (justAdded.length > 0) {
+        const who = justAdded.map(function (e) { return e.name; }).join(" & ");
+        pen.fillStyle = "#ffd75e";
+        pen.font = "bold 20px sans-serif";
+        pen.fillText(newBest ? "🏆 NEW HIGH SCORE, " + justAdded[0].name + "!" : "🏆 " + who + " made the top 3!", canvas.width / 2, 196);
+      }
+      drawDifficultyButtons();
+      drawLeaderboard(290);
+      if (onlineNote) {
+        pen.textAlign = "center";
+        pen.fillStyle = "#ff8fc7";
+        pen.font = "13px sans-serif";
+        pen.fillText(onlineNote + " Saved on this device.", canvas.width / 2, 386);
+      } else {
+        drawOtherBests(386);
+      }
+      pen.textAlign = "center";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 19px sans-serif";
+      if (checkingScores) {
+        pen.fillText("Checking the scoreboard…", canvas.width / 2, 408);
+      } else {
+        pen.fillText("Play again?", canvas.width / 2, 408);
+        drawButtons();
+        drawPlayingAs();
+      }
+    }
+
+    function drawMessage(title, line) {
+      dimScreen();
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "bold 44px sans-serif";
+      pen.fillText(title, canvas.width / 2, canvas.height / 2 - 30);
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 19px sans-serif";
+      pen.fillText(line, canvas.width / 2, canvas.height / 2 + 20);
+    }
+
+    function drawScore(p, y) {
+      pen.fillStyle = p.color;
+      pen.fillRect(16, y, 16, 16);
+      pen.strokeStyle = "white";
+      pen.lineWidth = 2;
+      pen.strokeRect(16, y, 16, 16);
+      pen.fillStyle = "white";
+      pen.font = "bold 18px sans-serif";
+      pen.textAlign = "left";
+      pen.textBaseline = "top";
+      let text = displayName(p) + ": " + p.score;
+      if (playerCount === 2) text += p.alive ? "  ❤️" + p.lives : "  💥";
+      pen.fillText(text, 40, y - 1);
+    }
+
+    function draw() {
+      pen.fillStyle = "#05071a";
+      pen.fillRect(0, 0, canvas.width, canvas.height);
+
+      pen.save();
+      if (shakeTime > 0) pen.translate((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+      drawMaze();
+
+      // keep the characters inside the maze (the side tunnels hide them as they pass through)
+      pen.save();
+      pen.beginPath();
+      pen.rect(OX, OY, COLS * T, ROWS * T);
+      pen.clip();
+      const playing = gameState === "playing" || gameState === "paused";
+      const someoneCaught = playerCount === 1 && players[0].dying > 0;
+      if (playing && clearTimer <= 0 && !someoneCaught) {
+        for (const m of monsters) drawMonster(m);
+      }
+      if (playing) {
+        for (const p of activePlayers()) if (p.alive) drawMuncher(p);
+      }
+      pen.restore();
+
+      for (const s of sparkles) {
+        pen.globalAlpha = Math.max(0, s.life / 0.6);
+        pen.fillStyle = s.color;
+        pen.fillRect(s.x - 1.5, s.y - 1.5, 3, 3);
+      }
+      pen.globalAlpha = 1;
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.font = "bold 16px sans-serif";
+      for (const word of popups) {
+        pen.globalAlpha = Math.max(0, Math.min(1, word.life));
+        pen.fillStyle = word.color;
+        pen.fillText(word.text, word.x, word.y);
+      }
+      pen.globalAlpha = 1;
+      pen.restore();
+
+      // "READY!"
+      if (gameState === "playing" && readyTimer > 0 && clearTimer <= 0) {
+        pen.fillStyle = "#ffd75e";
+        pen.font = "bold 18px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText("READY!", screenX(13.5), screenY(14));
+      }
+
+      // --- the scoreboard ---
+      drawScore(players[0], 12);
+      if (playerCount === 2) drawScore(players[1], 36);
+      pen.font = "bold 18px sans-serif";
+      pen.textAlign = "center";
+      pen.textBaseline = "top";
+      pen.fillStyle = blueTime > 0 ? "#7df9ff" : "white";
+      pen.fillText(blueTime > 0 ? "😱 " + Math.ceil(blueTime) : "Level " + level, canvas.width / 2 + 40, 12);
+      pen.textAlign = "right";
+      if (playerCount === 1) pen.fillText("❤️".repeat(Math.max(0, Math.min(8, players[0].lives))), canvas.width - 16, 12);
+      pen.font = "13px sans-serif";
+      pen.fillStyle = "#aab";
+      pen.fillText(settings().label + " · Best " + best, canvas.width - 16, 38);
+
+      // controls reminder
+      pen.font = "14px sans-serif";
+      pen.fillStyle = "#cfd3ee";
+      pen.textAlign = "center";
+      pen.textBaseline = "bottom";
+      let hint;
+      if (gameState === "start" || gameState === "gameover") {
+        hint = touchScreen ? "Tap a button to start" : "← → difficulty    1 / 2: players    N: change name";
+      } else if (touchScreen) {
+        hint = playerCount === 2 ? "Swipe on the left: P1    Swipe on the right: P2" : "Swipe to steer";
+      } else {
+        hint = (playerCount === 2 ? "P1: W A S D    P2: arrow keys" : "Arrow keys or W A S D") +
+          "    P: pause    M: sound " + (soundOn ? "on" : "off");
+      }
+      pen.fillText(hint, canvas.width / 2, canvas.height - 8);
+
+      if (bannerTimer > 0 && gameState === "playing") {
+        pen.globalAlpha = Math.min(1, bannerTimer);
+        pen.fillStyle = "#ffd75e";
+        pen.font = "bold 40px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText(bannerText, canvas.width / 2, screenY(8));
+        pen.globalAlpha = 1;
+      }
+
+      if (gameState === "start") drawStartScreen();
+      if (gameState === "paused") drawMessage("PAUSED", touchScreen ? "Tap to keep playing" : "Press P or click to keep playing");
+      if (gameState === "gameover") drawGameOverScreen();
+    }
+
+    function resultText() {
+      if (playerCount === 1) return "You scored " + players[0].score + " points";
+      const p1 = players[0].score;
+      const p2 = players[1].score;
+      if (p1 > p2) return displayName(players[0]) + " wins, " + p1 + " to " + p2 + "!";
+      if (p2 > p1) return displayName(players[1]) + " wins, " + p2 + " to " + p1 + "!";
+      return "It's a tie, " + p1 + " to " + p2 + "!";
+    }
+
+    // ---------------------------------------------------------------
+    // 6. GAME LOOP
+    // ---------------------------------------------------------------
+    let lastTime = performance.now();
+
+    function loop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    for (const name of DIFFICULTY_ORDER) loadOnlineScores(name);
+    lastOnlineCheck = 0;
+    lastAllCheck = 0;
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
