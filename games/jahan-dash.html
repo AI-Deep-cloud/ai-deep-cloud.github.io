@@ -1,0 +1,2042 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- tells phones to show the page at its real size instead of zoomed out -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jahan Dash</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    /* the game area: as big as fits the screen, always 480 x 600 in shape */
+    .stage {
+      position: relative;
+      width: min(480px, 100vw, calc(95vh * 0.8));
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #5fb8f2;
+      border: 3px solid #fff;
+      box-sizing: border-box;
+      touch-action: none;        /* tapping and swiping play the game, they don't scroll the page */
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    /* the box where you type your name */
+    .name-form {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(300px, 82%);
+      padding: 18px;
+      background: #1d2340;
+      border: 3px solid #ffd75e;
+      border-radius: 8px;
+      box-shadow: 6px 6px 0 #000;
+      color: #fff;
+      font-family: sans-serif;
+      text-align: center;
+    }
+    .name-form .trophy { font-size: 40px; line-height: 1; }
+    .name-form h2 { margin: 8px 0 2px; font-size: 22px; color: #ffd75e; }
+    .name-form p { margin: 0 0 12px; color: #cfd3ee; }
+    .name-form input {
+      width: 100%;
+      padding: 10px;
+      font-size: 20px;
+      text-align: center;
+      background: #12152b;
+      color: #fff;
+      border: 2px solid #fff;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    .name-form input:focus { outline: none; border-color: #ffd75e; }
+    .name-form .name-label { display: block; margin: 10px 0 4px; text-align: left; font-weight: bold; font-size: 14px; color: #cfd3ee; }
+    .name-form .name-error { margin: 10px 0 0; color: #ff8fc7; font-weight: bold; }
+    .name-form .row { display: flex; gap: 8px; margin-top: 12px; }
+    .name-form button {
+      flex: 1;
+      padding: 10px;
+      font: bold 17px sans-serif;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .name-form .save { background: #ffd75e; color: #1d2340; border: 2px solid #ffd75e; }
+    .name-form .skip { background: transparent; color: #fff; border: 2px solid #fff; }
+    .hidden { display: none !important; }
+    /* link back to the arcade's home page */
+    .back {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      padding: 6px 12px;
+      background: #ffd75e;
+      color: #1d2340;
+      font: bold 15px sans-serif;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <a class="back" href="../index.html">&larr; Arcade</a>
+  <div class="stage">
+    <canvas id="game" width="480" height="600"></canvas>
+
+    <!-- asks for your name before you play -->
+    <form class="name-form hidden" id="name-form" autocomplete="off">
+      <div class="trophy">🔍</div>
+      <h2>What's your name?</h2>
+      <p>It goes on the scoreboard when you get a top score.</p>
+      <label class="name-label hidden" id="name-label-1" for="name-input-1">Player 1</label>
+      <input id="name-input-1" type="text" maxlength="12" placeholder="Your name" aria-label="Player 1 name" spellcheck="false">
+      <label class="name-label hidden" id="name-label-2" for="name-input-2">Player 2</label>
+      <input class="hidden" id="name-input-2" type="text" maxlength="12" placeholder="Player 2's name" aria-label="Player 2 name" spellcheck="false">
+      <p class="name-error hidden" id="name-error" role="alert"></p>
+      <div class="row">
+        <button class="save" type="submit" id="name-go">Play ▶</button>
+        <button class="skip" type="button" id="name-cancel">Back</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    // ===============================================================
+    //  JAHAN DASH
+    //  Jahan is a very curious kid who lives in Tiny Town.
+    //  Run through town, jump and slide past everything in the way,
+    //  and fill the Curiosity Book with amazing discoveries!
+    //  Built the same way as our other games: STATE, INPUT, UPDATE, DRAW and the GAME LOOP.
+    // ===============================================================
+
+    // ---------------------------------------------------------------
+    // 1. SETUP
+    // ---------------------------------------------------------------
+    const canvas = document.getElementById("game");
+    const pen = canvas.getContext("2d");
+    const GROUND = 470;              // where Jahan's feet touch the sidewalk
+    const GAME_ID = "jahan-dash";    // this game's name in the online scoreboard
+    const GRAVITY = 2300;
+    const JUMP = 780;                // how hard a jump pushes up
+    const DOUBLE_JUMP = 660;         // the second jump, in the air
+    const METER = 40;                // 40 pixels = 1 meter
+
+    // How Jahan looks. Change these colors to match the real Jahan!
+    const JAHAN_LOOK = { skin: "#c98b5c", hair: "#2b1b0e", shirt: "#ff9f43", shorts: "#2f4b9a" };
+    const BUDDY_LOOK = { skin: "#f1c27d", hair: "#8b4513", shirt: "#ff8fc7", shorts: "#2d6a4f" };
+
+    // ---------------------------------------------------------------
+    // 2. STATE
+    // ---------------------------------------------------------------
+    function makeRunner(name, look, x) {
+      return {
+        name: name,
+        look: look,
+        x: x, y: GROUND,         // y is where the feet are
+        vy: 0,
+        onGround: true,
+        jumpsLeft: 2,            // a jump, then a double jump
+        jumpedAt: -9,
+        sliding: 0,              // seconds of sliding left
+        slideWhenLanding: false,
+        lives: 0,
+        alive: false,
+        invincible: 0,           // seconds of blinking after bumping into something
+        meters: 0,
+        bonus: 0,                // points from stars, discoveries and missions
+        score: 0,
+        stars: 0, found: 0, jumps: 0, slides: 0, boxes: 0,
+        helmet: 0, balloon: 0, skate: 0, magnet: 0, double: 0,   // power-ups (seconds left)
+        runPhase: 0
+      };
+    }
+    const players = [
+      makeRunner("Jahan", JAHAN_LOOK, 150),
+      makeRunner("Buddy", BUDDY_LOOK, 95)
+    ];
+    let playerCount = 1;
+
+    // THE CURIOSITY BOOK: everything Jahan can discover. Rare ones are harder to find!
+    const DISCOVERIES = [
+      { picture: "🐞", name: "Ladybug",          rarity: "common" },
+      { picture: "🦋", name: "Butterfly",        rarity: "common" },
+      { picture: "🐌", name: "Snail",            rarity: "common" },
+      { picture: "🐸", name: "Frog",             rarity: "common" },
+      { picture: "🍄", name: "Mushroom",         rarity: "common" },
+      { picture: "🌻", name: "Sunflower",        rarity: "common" },
+      { picture: "🐚", name: "Seashell",         rarity: "common" },
+      { picture: "🍁", name: "Maple leaf",       rarity: "common" },
+      { picture: "🐿️", name: "Squirrel",         rarity: "rare" },
+      { picture: "🍀", name: "Four-leaf clover", rarity: "rare" },
+      { picture: "🦔", name: "Hedgehog",         rarity: "rare" },
+      { picture: "💎", name: "Crystal",          rarity: "rare" },
+      { picture: "🦕", name: "Dino fossil",      rarity: "rare" },
+      { picture: "☄️", name: "Meteorite",        rarity: "legendary" },
+      { picture: "👑", name: "Lost crown",       rarity: "legendary" },
+      { picture: "🛸", name: "UFO",              rarity: "legendary" }
+    ];
+    const RARITY = {
+      common:    { chance: 10, points: 10, glow: "rgba(255, 255, 255, 0.55)" },
+      rare:      { chance: 3,  points: 25, glow: "rgba(125, 249, 255, 0.7)" },
+      legendary: { chance: 1,  points: 60, glow: "rgba(255, 215, 94, 0.85)" }
+    };
+    let book = {};               // which discoveries have been found (saved on this device)
+    try { book = JSON.parse(localStorage.getItem("jahanBook") || "{}") || {}; } catch (e) {}
+    function saveBook() { try { localStorage.setItem("jahanBook", JSON.stringify(book)); } catch (e) {} }
+    function bookCount() { return DISCOVERIES.filter(function (d) { return book[d.name]; }).length; }
+
+    // POWER-UPS from mystery boxes
+    const POWER_UPS = {
+      balloon: { picture: "🎈", message: "BALLOON RIDE!",  seconds: 5 },
+      skate:   { picture: "🛹", message: "SKATEBOARD!",    seconds: 6 },
+      magnet:  { picture: "🧲", message: "STAR MAGNET!",   seconds: 8 },
+      helmet:  { picture: "🛡️", message: "HELMET ON!",     seconds: 20 },
+      double:  { picture: "✨", message: "DOUBLE STARS!",  seconds: 10 }
+    };
+
+    // MISSIONS: finish one for +50 points, then a harder one appears
+    const MISSIONS = [
+      { text: "Collect {n} ⭐",            stat: "stars",  amounts: [20, 50, 100, 200, 300] },
+      { text: "Jump {n} times",            stat: "jumps",  amounts: [15, 40, 80, 150, 250] },
+      { text: "Run {n} m",                 stat: "meters", amounts: [200, 500, 1000, 1800, 3000] },
+      { text: "Find {n} discoveries",      stat: "found",  amounts: [2, 4, 8, 12, 20] },
+      { text: "Slide {n} times",           stat: "slides", amounts: [5, 12, 25, 40, 60] },
+      { text: "Open {n} mystery boxes",    stat: "boxes",  amounts: [1, 2, 4, 6, 9] }
+    ];
+    const MISSION_POINTS = 50;
+
+    // DIFFICULTY. Each one changes these numbers.
+    const DIFFICULTIES = {
+      easy: {
+        label: "EASY",
+        lives: 3,
+        startSpeed: 250,         // pixels per second
+        speedUp: 3,              // gets this much faster every second
+        topSpeed: 520,
+        gapMin: 1.4,             // seconds between obstacles (shortest)...
+        gapMax: 2.4              // ...and longest
+      },
+      medium: {
+        label: "MEDIUM",
+        lives: 2,
+        startSpeed: 300,
+        speedUp: 4.5,
+        topSpeed: 620,
+        gapMin: 1.1,
+        gapMax: 2.0
+      },
+      hard: {
+        label: "HARD",
+        lives: 1,
+        startSpeed: 350,
+        speedUp: 6,
+        topSpeed: 720,
+        gapMin: 0.9,
+        gapMax: 1.6
+      }
+    };
+    const DIFFICULTY_ORDER = ["easy", "medium", "hard"];
+    let difficulty = "medium";
+    try {
+      const savedDifficulty = localStorage.getItem("jahanDashDifficulty");
+      if (DIFFICULTIES[savedDifficulty]) difficulty = savedDifficulty;
+    } catch (e) {}
+
+    function settings() { return DIFFICULTIES[difficulty]; }
+
+    function setDifficulty(name) {
+      if (!DIFFICULTIES[name] || name === difficulty) return;
+      difficulty = name;
+      justAdded = [];
+      newBest = false;
+      onlineNote = "";
+      best = board().length ? board()[0].score : 0;
+      try { localStorage.setItem("jahanDashDifficulty", difficulty); } catch (e) {}
+      sounds.star();
+      loadOnlineScores(name);
+    }
+
+    function stepDifficulty(direction) {
+      const i = DIFFICULTY_ORDER.indexOf(difficulty) + direction;
+      if (i >= 0 && i < DIFFICULTY_ORDER.length) setDifficulty(DIFFICULTY_ORDER[i]);
+    }
+
+    let obstacles = [];        // things to jump over or slide under
+    let items = [];            // stars, discoveries and mystery boxes
+    let sparkles = [];
+    let popups = [];
+    let speed = 0;             // how fast Tiny Town scrolls by
+    let distance = 0;          // pixels run this game
+    let playTime = 0;
+    let nextObstacleIn = 0;
+    let nextStarsIn = 0;
+    let nextDiscoveryIn = 0;
+    let nextBoxIn = 0;
+    let mission = null;        // { text, stat, goal, start }
+    let missionLevel = 0;
+    let missionsDone = 0;
+    let gameState = "start";   // "start", "playing", "paused" or "gameover"
+    let shakeTime = 0;
+    let bannerText = "";
+    let bannerSub = "";
+    let bannerTimer = 0;
+    let clock = 0;
+    let dayTime = 0.15;        // 0 to 1: day, sunset, night, sunrise...
+    let gameOverAt = -99;
+
+    // the scenery (it scrolls at different speeds so it looks deep)
+    let clouds = [];
+    let houses = [];
+    let trees = [];
+    let sceneryX = 0;          // how far the scenery has scrolled
+
+    // ---------------------------------------------------------------
+    // TOP 3 SCORES with names: one list per difficulty on this device,
+    // plus the shared online scoreboard everyone sees
+    // ---------------------------------------------------------------
+    let scores = { easy: [], medium: [], hard: [] };
+    let names = ["", ""];
+    let justAdded = [];
+    let newBest = false;
+
+    function cleanList(list) {
+      if (!Array.isArray(list)) return [];
+      return list.filter(function (e) { return e && typeof e.score === "number"; }).slice(0, 3);
+    }
+
+    try {
+      const saved = JSON.parse(localStorage.getItem("jahanDashScores") || "{}");
+      for (const name of DIFFICULTY_ORDER) scores[name] = cleanList(saved[name]);
+      const savedNames = JSON.parse(localStorage.getItem("arcadeNames") || localStorage.getItem("starCatcherNames") || "[]");
+      if (Array.isArray(savedNames)) names = [savedNames[0] || "", savedNames[1] || ""];
+    } catch (e) {}
+
+    function saveLeaderboard() {
+      try {
+        localStorage.setItem("jahanDashScores", JSON.stringify(scores));
+        localStorage.setItem("arcadeNames", JSON.stringify(names));
+      } catch (e) {}
+    }
+
+    // the shared online scoreboard (a free Google Firebase database)
+    const FIREBASE_PROJECT = "star-catcher-891e9";
+    const DATABASE = "projects/" + FIREBASE_PROJECT + "/databases/(default)/documents";
+    const DATABASE_URL = "https://firestore.googleapis.com/v1/" + DATABASE;
+    const MAX_ONLINE_SCORE = 5000;      // the database's limit, so huge runs count as 5000 online
+
+    let onlineScores = { easy: null, medium: null, hard: null };
+    let lastOnlineCheck = -999;
+    let lastAllCheck = -999;
+    let checkingScores = false;
+    let onlineNote = "";
+
+    async function loadOnlineScores(name) {
+      try {
+        const response = await fetch(DATABASE_URL + "/arcade/" + GAME_ID + ":runQuery", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ structuredQuery: {
+            from: [{ collectionId: name }],
+            orderBy: [{ field: { fieldPath: "score" }, direction: "DESCENDING" }],
+            limit: 6
+          } })
+        });
+        if (!response.ok) throw new Error("status " + response.status);
+        const rows = await response.json();
+        onlineScores[name] = rows
+          .filter(function (row) { return row.document && row.document.fields; })
+          .map(function (row) {
+            const fields = row.document.fields;
+            return { name: fields.name ? fields.name.stringValue : "", score: Number(fields.score ? fields.score.integerValue : 0) };
+          })
+          .filter(function (entry) { return entry.name && isKidFriendly(entry.name); })
+          .slice(0, 3);
+      } catch (error) {
+        onlineScores[name] = null;
+      }
+      if (name === difficulty) best = board().length ? board()[0].score : 0;
+    }
+
+    async function sendOnlineScore(name, playerName, score) {
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      try {
+        const response = await fetch(DATABASE_URL + ":commit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ writes: [{
+            update: {
+              name: DATABASE + "/arcade/" + GAME_ID + "/" + name + "/" + id,
+              fields: { name: { stringValue: playerName }, score: { integerValue: String(Math.min(score, MAX_ONLINE_SCORE)) } }
+            },
+            updateTransforms: [{ fieldPath: "createdAt", setToServerValue: "REQUEST_TIME" }],
+            currentDocument: { exists: false }
+          }] })
+        });
+        return response.ok;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function isOnline() { return onlineScores[difficulty] !== null; }
+    function board() { return isOnline() ? onlineScores[difficulty] : scores[difficulty]; }
+    let best = board().length ? board()[0].score : 0;
+
+    function madeTopThree(score) {
+      const list = board();
+      return score > 0 && (list.length < 3 || score > list[list.length - 1].score);
+    }
+
+    function insertScore(list, entry) {
+      const longer = list.concat([entry]);
+      longer.sort(function (a, b) { return b.score - a.score; });
+      return longer.slice(0, 3);
+    }
+
+    function addScore(name, score) {
+      const level = difficulty;
+      const entry = { name: name, score: score };
+      scores[level] = insertScore(scores[level], entry);       // this device's list
+      saveLeaderboard();
+      let shown = entry;
+      if (onlineScores[level]) {                               // everyone's list (huge runs count as 5000 there)
+        shown = { name: name, score: Math.min(score, MAX_ONLINE_SCORE) };
+        onlineScores[level] = insertScore(onlineScores[level], shown);
+        sendOnlineScore(level, name, score).then(function (saved) {
+          if (!saved) onlineNote = "Couldn't save that score online.";
+          loadOnlineScores(level);
+        });
+      }
+      justAdded.push(shown);
+      if (board()[0] === shown) newBest = true;
+      best = board()[0].score;
+    }
+
+    function isJustAdded(entry) {
+      return justAdded.some(function (j) { return j.name === entry.name && j.score === entry.score; });
+    }
+
+    // ---------------------------------------------------------------
+    // KID-FRIENDLY NAMES (the same check as our other games)
+    // ---------------------------------------------------------------
+    const BLOCKED_PARTS = ["fuck", "fuk", "shit", "bitch", "cunt", "dick", "cock", "pussy", "porn", "sex",
+      "nazi", "hitler", "penis", "vagina", "boob", "slut", "whore", "bastard", "nigg", "fag", "retard",
+      "piss", "wank", "twat", "horny", "nude", "naked", "kkk"];
+    const BLOCKED_WORDS = ["ass", "arse", "asshole", "rape", "hell", "damn", "crap", "suck", "sucks",
+      "stupid", "idiot", "dumb", "loser", "hate", "ugly", "fat", "weirdo"];
+    const ALLOWED_PARTS = ["peacock", "cockatoo", "cockatiel", "cockroach", "hancock", "hitchcock",
+      "shuttlecock", "dickens", "essex", "sussex", "middlesex"];
+
+    function isKidFriendly(name) {
+      const lookAlikes = { "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "@": "a", "$": "s", "!": "i" };
+      const spaced = name.replace(/([a-z])([A-Z])/g, "$1 $2")
+        .toLowerCase()
+        .replace(/[0134578@$!]/g, function (c) { return lookAlikes[c]; });
+      let letters = spaced.replace(/[^a-z]/g, "");
+      for (const ok of ALLOWED_PARTS) letters = letters.split(ok).join("");
+      const squashed = letters.replace(/(.)\1+/g, "$1");
+      for (const part of BLOCKED_PARTS) {
+        if (letters.includes(part) || squashed.includes(part)) return false;
+      }
+      for (const word of spaced.split(/[^a-z]+/)) {
+        if (BLOCKED_WORDS.includes(word) || BLOCKED_WORDS.includes(word.replace(/(.)\1+/g, "$1"))) return false;
+      }
+      return true;
+    }
+
+    // ---------------------------------------------------------------
+    // PLAYER NAMES: asked before your first game, then remembered
+    // ---------------------------------------------------------------
+    let nameFormOpen = false;
+    let nameFormPlayers = 1;
+    let startAfterNames = false;
+
+    function nameBox(n) { return document.getElementById("name-input-" + n); }
+
+    function openNameForm(count, thenStart) {
+      nameFormOpen = true;
+      nameFormPlayers = count;
+      startAfterNames = thenStart;
+      const two = count === 2;
+      document.getElementById("name-label-1").classList.toggle("hidden", !two);
+      document.getElementById("name-label-2").classList.toggle("hidden", !two);
+      nameBox(2).classList.toggle("hidden", !two);
+      nameBox(1).value = names[0];
+      nameBox(2).value = names[1];
+      document.getElementById("name-go").textContent = thenStart ? "Play ▶" : "Save";
+      document.getElementById("name-error").classList.add("hidden");
+      document.getElementById("name-form").classList.remove("hidden");
+      nameBox(1).focus();
+      nameBox(1).select();
+    }
+
+    function closeNameForm() {
+      nameFormOpen = false;
+      document.getElementById("name-form").classList.add("hidden");
+    }
+
+    function showNameError(message, n) {
+      const error = document.getElementById("name-error");
+      error.textContent = message;
+      error.classList.remove("hidden");
+      nameBox(n).focus();
+      nameBox(n).select();
+    }
+
+    document.getElementById("name-form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      const typed = [1, 2].map(function (n) { return nameBox(n).value.replace(/\s+/g, " ").trim().slice(0, 12); });
+      for (let i = 0; i < nameFormPlayers; i++) {
+        if (!typed[i]) {
+          return showNameError(nameFormPlayers === 2 ? "Player " + (i + 1) + " needs a name first." : "Type your name first.", i + 1);
+        }
+        if (!isKidFriendly(typed[i])) return showNameError("That name isn't kid-friendly. Try another one! 🙂", i + 1);
+      }
+      names[0] = typed[0];
+      if (nameFormPlayers === 2) names[1] = typed[1];
+      saveLeaderboard();
+      closeNameForm();
+      if (startAfterNames) startGame(nameFormPlayers);
+    });
+    document.getElementById("name-cancel").addEventListener("click", closeNameForm);
+    for (const n of [1, 2]) {
+      nameBox(n).addEventListener("keydown", function (event) {
+        if (event.key === "Escape") closeNameForm();
+      });
+    }
+
+    function tryStart(count) {
+      if (clock - gameOverAt < 0.8) return;
+      if (!names[0] || (count === 2 && !names[1])) openNameForm(count, true);
+      else startGame(count);
+    }
+
+    function displayName(p) {
+      return names[players.indexOf(p)] || p.name;
+    }
+
+    function activePlayers() {
+      return players.slice(0, playerCount);
+    }
+
+    // ---------------------------------------------------------------
+    // Starting and game over
+    // ---------------------------------------------------------------
+    function startGame(count) {
+      playerCount = count;
+      const d = settings();
+      obstacles = [];
+      items = [];
+      sparkles = [];
+      popups = [];
+      speed = d.startSpeed;
+      distance = 0;
+      playTime = 0;
+      nextObstacleIn = 700;
+      nextStarsIn = 250;
+      nextDiscoveryIn = 900;
+      nextBoxIn = 2400;
+      missionLevel = 0;
+      missionsDone = 0;
+      shakeTime = 0;
+      newBest = false;
+      dayTime = 0.15;
+      for (const p of players) {
+        p.y = GROUND;
+        p.vy = 0;
+        p.onGround = true;
+        p.jumpsLeft = 2;
+        p.sliding = 0;
+        p.slideWhenLanding = false;
+        p.lives = d.lives;
+        p.alive = false;
+        p.invincible = 0;
+        p.meters = 0;
+        p.bonus = 0;
+        p.score = 0;
+        p.stars = 0; p.found = 0; p.jumps = 0; p.slides = 0; p.boxes = 0;
+        p.helmet = 0; p.balloon = 0; p.skate = 0; p.magnet = 0; p.double = 0;
+      }
+      for (const p of activePlayers()) p.alive = true;
+      players[0].x = playerCount === 2 ? 165 : 150;
+      newMission();
+      banner("GO, " + displayName(players[0]).toUpperCase() + "!", playerCount === 2 ? "and " + displayName(players[1]) + "!" : "Explore Tiny Town!");
+      gameState = "playing";
+      sounds.start();
+    }
+
+    function endGame() {
+      gameState = "gameover";
+      gameOverAt = clock;
+      sounds.gameOver();
+      newBest = false;
+      justAdded = [];
+      onlineNote = "";
+      const finished = activePlayers().slice().sort(function (a, b) { return b.score - a.score; });
+      checkingScores = true;
+      loadOnlineScores(difficulty).then(function () {
+        checkingScores = false;
+        lastOnlineCheck = clock;
+        if (gameState !== "gameover") return;
+        if (!isOnline()) onlineNote = "Couldn't reach the online scoreboard.";
+        for (const p of finished) {
+          if (madeTopThree(Math.min(p.score, isOnline() ? MAX_ONLINE_SCORE : p.score))) addScore(displayName(p), p.score);
+        }
+        if (justAdded.length > 0) sounds.mission();
+      });
+    }
+
+    // ---------------------------------------------------------------
+    // MISSIONS
+    // ---------------------------------------------------------------
+    function teamStat(stat) {
+      let total = 0;
+      for (const p of activePlayers()) total = stat === "meters" ? Math.max(total, p.meters) : total + p[stat];
+      return Math.floor(total);
+    }
+
+    // pick a new mission (each one a bit harder than the last)
+    function newMission() {
+      let kind = MISSIONS[Math.floor(Math.random() * MISSIONS.length)];
+      if (mission && kind.stat === mission.stat) kind = MISSIONS[(MISSIONS.indexOf(kind) + 1) % MISSIONS.length];
+      const goal = kind.amounts[Math.min(missionLevel, kind.amounts.length - 1)];
+      mission = {
+        text: kind.text.replace("{n}", goal),
+        stat: kind.stat,
+        goal: goal,
+        start: teamStat(kind.stat)        // count from now
+      };
+    }
+
+    function missionProgress() { return mission ? teamStat(mission.stat) - mission.start : 0; }
+    function missionTarget() { return mission ? mission.goal : 1; }
+
+    function checkMission() {
+      if (!mission) return;
+      if (missionProgress() >= missionTarget()) {
+        missionsDone += 1;
+        missionLevel += 1;
+        for (const p of activePlayers()) if (p.alive) p.bonus += MISSION_POINTS;
+        banner("MISSION COMPLETE!", "+" + MISSION_POINTS + " points");
+        burst(240, 200, ["#ffd75e", "#ff8fc7", "#7df9ff", "white"], 500, 60);
+        sounds.mission();
+        newMission();
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // SOUND. The browser makes the beeps itself.
+    // ---------------------------------------------------------------
+    let audio = null;
+    let soundOn = true;
+
+    function startAudio() {
+      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === "suspended") audio.resume();
+    }
+
+    function beep(pitch, length, shape, delay, loudness) {
+      if (!audio || !soundOn) return;
+      const start = audio.currentTime + (delay || 0);
+      const tone = audio.createOscillator();
+      const volume = audio.createGain();
+      tone.type = shape || "square";
+      tone.frequency.setValueAtTime(pitch, start);
+      volume.gain.setValueAtTime(loudness || 0.08, start);
+      volume.gain.exponentialRampToValueAtTime(0.001, start + length);
+      tone.connect(volume);
+      volume.connect(audio.destination);
+      tone.start(start);
+      tone.stop(start + length);
+    }
+
+    function tune(notes, length, shape, gap) {
+      notes.forEach(function (pitch, i) { beep(pitch, length, shape, i * (gap || length)); });
+    }
+
+    const sounds = {
+      jump:      function () { beep(330, 0.06, "triangle"); beep(520, 0.07, "triangle", 0.04); },
+      doubleJump: function () { beep(520, 0.05, "triangle"); beep(780, 0.08, "triangle", 0.04); },
+      slide:     function () { beep(180, 0.12, "sawtooth", 0, 0.05); },
+      star:      function () { beep(988, 0.05, "square", 0, 0.06); beep(1319, 0.07, "square", 0.04, 0.06); },
+      discovery: function () { tune([659, 784, 988, 1319], 0.08, "triangle", 0.06); },
+      newFind:   function () { tune([523, 659, 784, 1047, 1319, 1568], 0.1, "square", 0.08); },
+      box:       function () { tune([784, 988, 1175, 1568], 0.06, "triangle", 0.05); },
+      bump:      function () { beep(110, 0.3, "sawtooth"); beep(70, 0.4, "square", 0.04); },
+      smash:     function () { beep(200, 0.08, "square"); beep(140, 0.1, "sawtooth", 0.05); },
+      saved:     function () { beep(600, 0.1, "triangle"); beep(900, 0.12, "triangle", 0.06); },
+      mission:   function () { tune([523, 659, 784, 1047, 784, 1047], 0.11, "square", 0.09); },
+      start:     function () { tune([392, 523, 659, 784], 0.1, "triangle", 0.09); },
+      gameOver:  function () { beep(392, 0.25, "triangle"); beep(330, 0.25, "triangle", 0.25); beep(262, 0.6, "triangle", 0.5); }
+    };
+
+    // ---------------------------------------------------------------
+    // 3. INPUT
+    // ---------------------------------------------------------------
+    function jump(p) {
+      if (gameState !== "playing" || !p.alive || p.balloon > 0) return;
+      if (p.onGround) {
+        p.vy = -JUMP;
+        p.onGround = false;
+        p.jumpsLeft = 1;
+        p.sliding = 0;
+        p.jumpedAt = clock;
+        p.jumps += 1;
+        sounds.jump();
+      } else if (p.jumpsLeft > 0) {          // DOUBLE JUMP in the air
+        p.vy = -DOUBLE_JUMP;
+        p.jumpsLeft = 0;
+        p.jumps += 1;
+        burst(p.x, p.y, ["white", "#cfe8ff"], 160, 10);
+        sounds.doubleJump();
+      }
+      checkMission();
+    }
+
+    function slide(p) {
+      if (gameState !== "playing" || !p.alive || p.balloon > 0) return;
+      if (!p.onGround && clock - p.jumpedAt < 0.15 && p.jumpsLeft === 1) {   // a swipe right after a tap: cancel the jump
+        p.y = GROUND;
+        p.vy = 0;
+        p.onGround = true;
+        p.jumpsLeft = 2;
+        p.jumps = Math.max(0, p.jumps - 1);
+      }
+      if (p.onGround) {
+        if (p.sliding <= 0) {
+          p.slides += 1;
+          sounds.slide();
+        }
+        p.sliding = 0.65;
+      } else {                                // in the air: zoom down, then slide
+        p.vy = Math.max(p.vy, 900);
+        p.slideWhenLanding = true;
+      }
+      checkMission();
+    }
+
+    const JUMP_KEYS_P1 = [" ", "w", "W"];
+    const SLIDE_KEYS_P1 = ["s", "S"];
+    const JUMP_KEYS_P2 = ["ArrowUp", "Enter"];
+    const SLIDE_KEYS_P2 = ["ArrowDown"];
+
+    document.addEventListener("keydown", function (event) {
+      if (nameFormOpen || checkingScores || event.target.tagName === "INPUT") return;
+      if (event.key.startsWith("Arrow") || event.key === " ") event.preventDefault();
+      startAudio();
+
+      if (gameState === "start" || gameState === "gameover") {
+        if (event.repeat) return;
+        if (event.key === "1") tryStart(1);
+        if (event.key === "2") tryStart(2);
+        if (event.key === " " || event.key === "Enter") tryStart(playerCount);
+        if (event.key === "ArrowLeft") stepDifficulty(-1);
+        if (event.key === "ArrowRight") stepDifficulty(1);
+        if (event.key.toLowerCase() === "n") {
+          event.preventDefault();
+          openNameForm(playerCount, false);
+        }
+      } else if (gameState === "playing" && !event.repeat) {
+        const k = event.key;
+        if (playerCount === 1) {
+          if (JUMP_KEYS_P1.includes(k) || JUMP_KEYS_P2.includes(k)) jump(players[0]);
+          if (SLIDE_KEYS_P1.includes(k) || SLIDE_KEYS_P2.includes(k)) slide(players[0]);
+        } else {
+          if (JUMP_KEYS_P1.includes(k)) jump(players[0]);
+          if (SLIDE_KEYS_P1.includes(k)) slide(players[0]);
+          if (JUMP_KEYS_P2.includes(k)) jump(players[1]);
+          if (SLIDE_KEYS_P2.includes(k)) slide(players[1]);
+        }
+      }
+
+      const letter = event.key.toLowerCase();
+      if (letter === "p") {
+        if (gameState === "playing") gameState = "paused";
+        else if (gameState === "paused") gameState = "playing";
+      }
+      if (letter === "m") soundOn = !soundOn;
+    });
+
+    // TOUCH and MOUSE: tap to jump, swipe down to slide.
+    // With 2 players, the left half is Player 1 and the right half is Player 2.
+    const touchScreen = window.matchMedia("(pointer: coarse)").matches;
+    let swipes = {};
+
+    function gameSpot(event) {
+      const box = canvas.getBoundingClientRect();
+      return {
+        x: (event.clientX - box.left) * canvas.width / box.width,
+        y: (event.clientY - box.top) * canvas.height / box.height
+      };
+    }
+
+    const buttons = [
+      { label: "1 PLAYER",  players: 1, x: 50,  y: 425, width: 180, height: 56 },
+      { label: "2 PLAYERS", players: 2, x: 250, y: 425, width: 180, height: 56 }
+    ];
+    const difficultyButtons = [
+      { name: "easy",   x: 48,  y: 222, width: 120, height: 38 },
+      { name: "medium", x: 180, y: 222, width: 120, height: 38 },
+      { name: "hard",   x: 312, y: 222, width: 120, height: 38 }
+    ];
+    const changeNameButton = { x: 160, y: 528, width: 160, height: 34 };
+
+    function inside(spot, box) {
+      return spot.x > box.x && spot.x < box.x + box.width &&
+             spot.y > box.y && spot.y < box.y + box.height;
+    }
+
+    canvas.addEventListener("pointerdown", function (event) {
+      startAudio();
+      if (nameFormOpen || checkingScores) return;
+      const spot = gameSpot(event);
+
+      if (gameState === "start" || gameState === "gameover") {
+        for (const b of difficultyButtons) {
+          if (inside(spot, b)) setDifficulty(b.name);
+        }
+        for (const b of buttons) {
+          if (inside(spot, b)) tryStart(b.players);
+        }
+        if (inside(spot, changeNameButton)) openNameForm(playerCount, false);
+        return;
+      }
+      if (gameState === "paused") {
+        gameState = "playing";
+        return;
+      }
+      const who = playerCount === 1 || spot.x < canvas.width / 2 ? 0 : 1;
+      swipes[event.pointerId] = { x: spot.x, y: spot.y, who: who, used: false };
+      jump(players[who]);                                    // tap = jump straight away
+      try { canvas.setPointerCapture(event.pointerId); } catch (e) {}   // keep following the finger for a swipe
+    });
+
+    canvas.addEventListener("pointermove", function (event) {
+      const swipe = swipes[event.pointerId];
+      if (!swipe || swipe.used) return;
+      const spot = gameSpot(event);
+      if (spot.y - swipe.y > 24 && Math.abs(spot.y - swipe.y) > Math.abs(spot.x - swipe.x)) {   // swipe down = slide
+        swipe.used = true;
+        slide(players[swipe.who]);
+      }
+    });
+
+    function endSwipe(event) { delete swipes[event.pointerId]; }
+    canvas.addEventListener("pointerup", endSwipe);
+    canvas.addEventListener("pointercancel", endSwipe);
+
+    function refreshScoresSoon() {
+      lastOnlineCheck = -999;
+      lastAllCheck = -999;
+    }
+
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden && gameState === "playing") gameState = "paused";
+      if (!document.hidden) refreshScoresSoon();
+    });
+    window.addEventListener("focus", refreshScoresSoon);
+
+    // ---------------------------------------------------------------
+    // Helper functions
+    // ---------------------------------------------------------------
+    function random(low, high) { return low + Math.random() * (high - low); }
+    function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
+
+    // OBSTACLES. New kinds show up the further you run.
+    //   w, h = size.  air = floats at head height (slide under it!)
+    const OBSTACLE_TYPES = {
+      can:    { w: 30, h: 40, from: 0 },
+      cone:   { w: 26, h: 34, from: 0 },
+      puddle: { w: 62, h: 8,  from: 0 },
+      fence:  { w: 46, h: 36, from: 120 },
+      dog:    { w: 40, h: 32, from: 160, emoji: "🐕", extraSpeed: 80 },
+      bird:   { w: 34, h: 26, from: 250, emoji: "🐦", air: true },
+      bike:   { w: 52, h: 40, from: 350, emoji: "🚲" },
+      branch: { w: 74, h: 18, from: 500, air: true }
+    };
+
+    function spawnObstacle() {
+      const meters = distance / METER;
+      const kinds = Object.keys(OBSTACLE_TYPES).filter(function (k) { return meters >= OBSTACLE_TYPES[k].from; });
+      const kind = pick(kinds);
+      const type = OBSTACLE_TYPES[kind];
+      const o = { kind: kind, x: canvas.width + 30, w: type.w, h: type.h, y: GROUND - type.h, extraSpeed: type.extraSpeed || 0 };
+      if (kind === "bird") o.y = GROUND - 66;
+      if (kind === "branch") o.y = GROUND - 64;
+      obstacles.push(o);
+
+      // a rainbow of stars over things you jump
+      if (!type.air && Math.random() < 0.5) {
+        for (let i = 0; i < 5; i++) {
+          const t = i / 4;
+          items.push({ kind: "star", x: o.x + o.w / 2 + (t - 0.5) * 120, y: GROUND - 60 - Math.sin(t * Math.PI) * 70, r: 11 });
+        }
+      }
+      // sometimes two in a row (use your double jump!)
+      if (meters > 400 && difficulty !== "easy" && Math.random() < 0.18 && !type.air) {
+        obstacles.push({ kind: "cone", x: o.x + speed * 0.42, w: 26, h: 34, y: GROUND - 34, extraSpeed: 0 });
+      }
+    }
+
+    function spawnStarRow() {
+      const height = pick([GROUND - 26, GROUND - 26, GROUND - 100]);
+      for (let i = 0; i < 6; i++) items.push({ kind: "star", x: canvas.width + 20 + i * 30, y: height, r: 11 });
+    }
+
+    function pickDiscovery() {
+      let total = 0;
+      for (const d of DISCOVERIES) total += RARITY[d.rarity].chance;
+      let roll = Math.random() * total;
+      for (const d of DISCOVERIES) {
+        roll -= RARITY[d.rarity].chance;
+        if (roll <= 0) return d;
+      }
+      return DISCOVERIES[0];
+    }
+
+    function spawnDiscovery() {
+      const found = pickDiscovery();
+      items.push({ kind: "discovery", discovery: found, x: canvas.width + 30, y: pick([GROUND - 32, GROUND - 95, GROUND - 165]), r: 16 });
+    }
+
+    function spawnBox() {
+      items.push({ kind: "box", x: canvas.width + 30, y: GROUND - 115, r: 16 });
+    }
+
+    // the runner's box (smaller when sliding)
+    function hitBox(p) {
+      if (p.sliding > 0 && p.onGround) return { x: p.x - 22, y: p.y - 24, w: 44, h: 24 };
+      return { x: p.x - 12, y: p.y - 60, w: 24, h: 60 };
+    }
+
+    function boxesTouch(a, b) {
+      const give = 4;                       // a little forgiveness
+      return a.x + give < b.x + b.w && a.x + a.w - give > b.x &&
+             a.y + give < b.y + b.h && a.y + a.h - give > b.y;
+    }
+
+    function burst(x, y, colors, power, count) {
+      colors = colors || ["#ffd75e", "white"];
+      power = power || 260;
+      for (let i = 0; i < (count || 20); i++) {
+        sparkles.push({
+          x: x, y: y,
+          moveX: (Math.random() - 0.5) * power,
+          moveY: (Math.random() - 0.5) * power,
+          life: 0.6,
+          color: colors[Math.floor(Math.random() * colors.length)]
+        });
+      }
+    }
+
+    function popup(text, x, y, color) {
+      popups.push({ text: text, x: Math.max(70, Math.min(canvas.width - 70, x)), y: y, color: color, life: 1.1 });
+    }
+
+    function banner(text, sub) {
+      bannerText = text;
+      bannerSub = sub || "";
+      bannerTimer = 1.8;
+    }
+
+    function collect(item, p) {
+      item.gone = true;
+      if (item.kind === "star") {
+        const points = p.double > 0 ? 2 : 1;
+        p.stars += 1;
+        p.bonus += points;
+        sounds.star();
+        sparkles.push({ x: item.x, y: item.y, moveX: 0, moveY: -60, life: 0.3, color: "#ffd75e" });
+      } else if (item.kind === "discovery") {
+        const d = item.discovery;
+        const points = RARITY[d.rarity].points;
+        p.found += 1;
+        p.bonus += points;
+        burst(item.x, item.y, ["#ffd75e", "#7df9ff", "white"], 320, 30);
+        if (!book[d.name]) {                           // a brand new discovery for the book!
+          book[d.name] = true;
+          saveBook();
+          banner("NEW DISCOVERY! " + d.picture, d.name + " · " + bookCount() + " / " + DISCOVERIES.length + " in the book");
+          sounds.newFind();
+        } else {
+          popup(d.picture + " " + d.name + " +" + points, item.x, item.y - 24, "#7df9ff");
+          sounds.discovery();
+        }
+      } else if (item.kind === "box") {
+        const power = pick(Object.keys(POWER_UPS));
+        p[power] = POWER_UPS[power].seconds;
+        p.boxes += 1;
+        p.bonus += 5;
+        if (power === "balloon") {                      // a line of stars up in the sky
+          for (let i = 0; i < 14; i++) items.push({ kind: "star", x: canvas.width + 40 + i * 36, y: GROUND - 200, r: 11 });
+        }
+        burst(item.x, item.y, ["#c58b4d", "#ffd75e", "white"], 340, 28);
+        popup(POWER_UPS[power].picture + " " + POWER_UPS[power].message, item.x, item.y - 30, "#ffd75e");
+        sounds.box();
+      }
+      checkMission();
+    }
+
+    // bumped into something!
+    function bump(p, o) {
+      if (p.invincible > 0) return;
+      if (p.skate > 0 && !OBSTACLE_TYPES[o.kind].air) {    // the skateboard smashes right through
+        o.smashed = true;
+        o.spin = 0;
+        p.bonus += 5;
+        popup("SMASH! +5", o.x, o.y - 20, "#ffd75e");
+        burst(o.x + o.w / 2, o.y + o.h / 2, ["#ffd75e", "#ff9f43", "white"], 360, 20);
+        sounds.smash();
+        return;
+      }
+      if (p.helmet > 0) {                                  // the helmet takes the hit
+        p.helmet = 0;
+        p.invincible = 1.2;
+        popup("HELMET SAVED YOU!", p.x + 40, p.y - 80, "#7df9ff");
+        burst(p.x, p.y - 40, ["#7df9ff", "white"], 340, 24);
+        sounds.saved();
+        return;
+      }
+      p.lives -= 1;
+      p.invincible = 1.6;
+      shakeTime = 0.35;
+      burst(p.x, p.y - 30, ["#ff6b6b", "white"], 300, 24);
+      sounds.bump();
+      if (p.lives <= 0) {
+        p.alive = false;
+        if (playerCount === 2) popup(displayName(p) + " is out!", 240, 250, "#ff6b6b");
+      } else {
+        popup("OUCH!", p.x + 30, p.y - 80, "#ff6b6b");
+      }
+    }
+
+    // scenery makers
+    const HOUSE_COLORS = ["#ffb3ba", "#ffdfba", "#fff2a8", "#baffc9", "#bae1ff", "#e0bbff", "#f7c59f", "#a0e7e5"];
+    const ROOF_COLORS = ["#d1495b", "#8d6e63", "#4a6fa5", "#6a4c93", "#2a9d8f", "#e76f51"];
+
+    function addHouse(x) {
+      const w = random(70, 115);
+      houses.push({ x: x, w: w, h: random(60, 115), color: pick(HOUSE_COLORS), roof: pick(ROOF_COLORS),
+                    windows: Math.random() < 0.5 ? 2 : 1, chimney: Math.random() < 0.4 });
+      return x + w + random(12, 40);
+    }
+
+    function setUpScenery() {
+      clouds = [];
+      for (let i = 0; i < 5; i++) clouds.push({ x: random(0, 520), y: random(70, 200), size: random(0.7, 1.3) });
+      houses = [];
+      let x = -20;
+      houses.push({ sign: true, x: 250, w: 90, h: 60 });                  // "Welcome to Tiny Town"
+      while (x < canvas.width + 200) {
+        x = addHouse(x);
+        if (x > 230 && x < 360) x = 360;                                 // leave room for the sign
+      }
+      trees = [];
+      for (let tx = 30; tx < canvas.width + 200; tx += random(150, 260)) trees.push({ x: tx, lamp: Math.random() < 0.4 });
+    }
+    setUpScenery();
+
+    // ---------------------------------------------------------------
+    // 4. UPDATE
+    // ---------------------------------------------------------------
+    function update(dt) {
+      clock += dt;
+
+      for (const s of sparkles) {
+        s.x += s.moveX * dt;
+        s.y += s.moveY * dt;
+        s.moveY += 300 * dt;
+        s.life -= dt;
+      }
+      sparkles = sparkles.filter(function (s) { return s.life > 0; });
+      for (const word of popups) {
+        word.y -= 35 * dt;
+        word.life -= dt;
+      }
+      popups = popups.filter(function (word) { return word.life > 0; });
+      if (shakeTime > 0) shakeTime -= dt;
+      if (bannerTimer > 0) bannerTimer -= dt;
+
+      // keep the scoreboard up to date
+      const onMenu = gameState === "start" || gameState === "gameover";
+      if (!document.hidden && !checkingScores) {
+        if (clock - lastOnlineCheck > (onMenu ? 10 : 30)) {
+          lastOnlineCheck = clock;
+          loadOnlineScores(difficulty);
+        }
+        if (onMenu && clock - lastAllCheck > 30) {
+          lastAllCheck = clock;
+          for (const name of DIFFICULTY_ORDER) {
+            if (name !== difficulty) loadOnlineScores(name);
+          }
+        }
+      }
+
+      // the scenery scrolls (slowly on the menus)
+      const scroll = gameState === "playing" ? speed : (gameState === "paused" ? 0 : 70);
+      scrollScenery(scroll * dt);
+      if (gameState !== "paused") dayTime = (dayTime + dt / (gameState === "playing" ? 90 : 120)) % 1;
+
+      if (gameState !== "playing") return;
+
+      const d = settings();
+      playTime += dt;
+      speed = Math.min(d.topSpeed, d.startSpeed + d.speedUp * playTime);
+      const moved = speed * dt;
+      distance += moved;
+
+      // new things appear on the right
+      nextObstacleIn -= moved;
+      if (nextObstacleIn <= 0) {
+        spawnObstacle();
+        nextObstacleIn = speed * random(d.gapMin, d.gapMax);
+      }
+      nextStarsIn -= moved;
+      if (nextStarsIn <= 0) {
+        spawnStarRow();
+        nextStarsIn = speed * random(1.6, 3.2);
+      }
+      nextDiscoveryIn -= moved;
+      if (nextDiscoveryIn <= 0) {
+        spawnDiscovery();
+        nextDiscoveryIn = speed * random(7, 12);
+      }
+      nextBoxIn -= moved;
+      if (nextBoxIn <= 0) {
+        spawnBox();
+        nextBoxIn = speed * random(11, 18);
+      }
+
+      // everything moves to the left
+      for (const o of obstacles) {
+        o.x -= (speed + o.extraSpeed) * dt;
+        if (o.smashed) {                       // smashed things fly away spinning
+          o.y -= 300 * dt;
+          o.spin += dt * 12;
+        }
+      }
+      obstacles = obstacles.filter(function (o) { return o.x + o.w > -60 && o.y > -80; });
+      for (const item of items) item.x -= speed * dt;
+
+      for (const p of activePlayers()) {
+        if (!p.alive) continue;
+
+        // power-up timers
+        p.invincible = Math.max(0, p.invincible - dt);
+        p.helmet = Math.max(0, p.helmet - dt);
+        p.skate = Math.max(0, p.skate - dt);
+        p.magnet = Math.max(0, p.magnet - dt);
+        p.double = Math.max(0, p.double - dt);
+        const wasBalloon = p.balloon > 0;
+        p.balloon = Math.max(0, p.balloon - dt);
+        if (wasBalloon && p.balloon <= 0) {
+          p.invincible = Math.max(p.invincible, 1);      // a safe landing
+          p.onGround = false;
+          p.vy = 0;
+        }
+
+        p.meters += moved / METER;
+        p.runPhase += moved * 0.045;
+
+        // move up and down
+        if (p.balloon > 0) {                             // float high above everything
+          p.y += (GROUND - 175 + Math.sin(clock * 3) * 8 - p.y) * Math.min(1, dt * 3);
+          p.vy = 0;
+          p.onGround = false;
+          p.sliding = 0;
+        } else {
+          p.vy += GRAVITY * dt;
+          p.y += p.vy * dt;
+          if (p.y >= GROUND) {
+            if (!p.onGround) {                           // just landed
+              p.jumpsLeft = 2;
+              if (p.slideWhenLanding) {
+                p.slideWhenLanding = false;
+                p.sliding = 0.65;
+                p.slides += 1;
+                sounds.slide();
+              }
+            }
+            p.y = GROUND;
+            p.vy = 0;
+            p.onGround = true;
+          }
+        }
+        if (p.sliding > 0) p.sliding -= dt;
+
+        // bumping into obstacles
+        const box = hitBox(p);
+        for (const o of obstacles) {
+          if (o.smashed || o.hitBy === p) continue;
+          if (p.balloon > 0) continue;
+          if (boxesTouch(box, { x: o.x, y: o.y, w: o.w, h: o.h })) {
+            o.hitBy = p;                                 // only bump once per obstacle
+            bump(p, o);
+            if (!p.alive) break;
+          }
+        }
+        if (!p.alive) continue;
+
+        // picking things up (the magnet pulls them closer)
+        const cx = p.x;
+        const cy = (p.sliding > 0 && p.onGround) ? p.y - 14 : p.y - 32;
+        for (const item of items) {
+          if (item.gone) continue;
+          if (p.magnet > 0 && item.kind !== "box") {
+            const dx = cx - item.x;
+            const dy = cy - item.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 240 && dist > 1) {
+              item.x += dx / dist * 420 * dt;
+              item.y += dy / dist * 420 * dt;
+            }
+          }
+          if (Math.hypot(cx - item.x, cy - item.y) < item.r + 20) collect(item, p);
+        }
+
+        p.score = Math.floor(p.meters) + p.bonus;
+      }
+      items = items.filter(function (item) { return !item.gone && item.x > -40; });
+
+      checkMission();
+
+      // everyone out of hearts?
+      if (!activePlayers().some(function (p) { return p.alive; })) endGame();
+    }
+
+    function scrollScenery(amount) {
+      sceneryX += amount;
+      for (const c of clouds) {
+        c.x -= amount * 0.08;
+        if (c.x < -100) { c.x = canvas.width + random(20, 120); c.y = random(70, 200); }
+      }
+      for (const h of houses) h.x -= amount * 0.45;
+      houses = houses.filter(function (h) { return h.x + h.w > -40; });
+      let last = houses.length ? Math.max.apply(null, houses.map(function (h) { return h.x + h.w; })) : 0;
+      while (last < canvas.width + 120) last = addHouse(last + random(12, 40));
+      for (const t of trees) t.x -= amount * 0.8;
+      trees = trees.filter(function (t) { return t.x > -60; });
+      let lastTree = trees.length ? trees[trees.length - 1].x : 0;
+      while (lastTree < canvas.width + 120) {
+        lastTree += random(150, 260);
+        trees.push({ x: lastTree, lamp: Math.random() < 0.4 });
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 5. DRAW
+    // ---------------------------------------------------------------
+    // the sky changes through the day: day, sunset, night, sunrise
+    const SKY = [
+      { t: 0.00, top: "#5fb8f2", bottom: "#c9ecff" },
+      { t: 0.40, top: "#5fb8f2", bottom: "#c9ecff" },
+      { t: 0.50, top: "#ff8a5c", bottom: "#ffd29c" },
+      { t: 0.58, top: "#0d1030", bottom: "#2b2f63" },
+      { t: 0.88, top: "#0d1030", bottom: "#2b2f63" },
+      { t: 0.95, top: "#f7a6c4", bottom: "#ffe1b3" },
+      { t: 1.00, top: "#5fb8f2", bottom: "#c9ecff" }
+    ];
+
+    function mixColor(a, b, k) {
+      const pa = [1, 3, 5].map(function (i) { return parseInt(a.substr(i, 2), 16); });
+      const pb = [1, 3, 5].map(function (i) { return parseInt(b.substr(i, 2), 16); });
+      return "rgb(" + pa.map(function (v, i) { return Math.round(v + (pb[i] - v) * k); }).join(",") + ")";
+    }
+
+    function skyNow() {
+      for (let i = 0; i < SKY.length - 1; i++) {
+        const a = SKY[i];
+        const b = SKY[i + 1];
+        if (dayTime >= a.t && dayTime <= b.t) {
+          const k = (dayTime - a.t) / (b.t - a.t || 1);
+          return { top: mixColor(a.top, b.top, k), bottom: mixColor(a.bottom, b.bottom, k) };
+        }
+      }
+      return SKY[0];
+    }
+
+    // how dark it is (0 = day, 1 = night)
+    function nightness() {
+      if (dayTime < 0.45) return 0;
+      if (dayTime < 0.58) return (dayTime - 0.45) / 0.13;
+      if (dayTime < 0.88) return 1;
+      if (dayTime < 0.96) return 1 - (dayTime - 0.88) / 0.08;
+      return 0;
+    }
+
+    function drawScenery() {
+      const sky = skyNow();
+      const gradient = pen.createLinearGradient(0, 0, 0, GROUND);
+      gradient.addColorStop(0, sky.top);
+      gradient.addColorStop(1, sky.bottom);
+      pen.fillStyle = gradient;
+      pen.fillRect(0, 0, canvas.width, canvas.height);
+
+      const dark = nightness();
+      if (dark > 0) {                                        // stars at night
+        pen.fillStyle = "rgba(255, 255, 255, " + dark * 0.9 + ")";
+        for (let i = 0; i < 40; i++) {
+          const sx = (i * 97 + 13) % canvas.width;
+          const sy = (i * 53 + 29) % 260;
+          pen.fillRect(sx, sy, i % 5 === 0 ? 2 : 1, i % 5 === 0 ? 2 : 1);
+        }
+      }
+      // sun (day) or moon (night)
+      const arc = dayTime < 0.55 ? dayTime / 0.55 : (dayTime - 0.55) / 0.45;
+      const bodyX = 40 + arc * 400;
+      const bodyY = 210 - Math.sin(arc * Math.PI) * 140;
+      pen.fillStyle = dayTime < 0.55 ? "#ffe066" : "#f4f1de";
+      pen.beginPath();
+      pen.arc(bodyX, bodyY, dayTime < 0.55 ? 26 : 20, 0, Math.PI * 2);
+      pen.fill();
+
+      for (const c of clouds) {                              // fluffy clouds
+        pen.fillStyle = "rgba(255, 255, 255, " + (0.85 - dark * 0.55) + ")";
+        pen.beginPath();
+        pen.ellipse(c.x, c.y, 34 * c.size, 14 * c.size, 0, 0, Math.PI * 2);
+        pen.ellipse(c.x + 22 * c.size, c.y - 10 * c.size, 24 * c.size, 14 * c.size, 0, 0, Math.PI * 2);
+        pen.ellipse(c.x - 20 * c.size, c.y - 4 * c.size, 20 * c.size, 11 * c.size, 0, 0, Math.PI * 2);
+        pen.fill();
+      }
+
+      // rolling hills far away
+      pen.fillStyle = "#7cc47f";
+      pen.beginPath();
+      pen.moveTo(0, GROUND);
+      for (let x = 0; x <= canvas.width; x += 10) {
+        pen.lineTo(x, GROUND - 120 - Math.sin((x + sceneryX * 0.15) / 70) * 22 - Math.sin((x + sceneryX * 0.15) / 31) * 8);
+      }
+      pen.lineTo(canvas.width, GROUND);
+      pen.fill();
+
+      for (const h of houses) drawHouse(h, dark);
+      for (const t of trees) drawTree(t);
+
+      // sidewalk and road
+      pen.fillStyle = "#6fbf5f";
+      pen.fillRect(0, GROUND - 6, canvas.width, 8);
+      pen.fillStyle = "#d9d4c7";
+      pen.fillRect(0, GROUND, canvas.width, 34);
+      pen.fillStyle = "#bdb6a6";
+      for (let x = -(sceneryX % 48); x < canvas.width; x += 48) pen.fillRect(x, GROUND, 2, 34);   // sidewalk lines
+      pen.fillStyle = "#8a8578";
+      pen.fillRect(0, GROUND + 34, canvas.width, 6);
+      pen.fillStyle = "#4a4e5a";
+      pen.fillRect(0, GROUND + 40, canvas.width, canvas.height - GROUND - 40);
+      pen.fillStyle = "#f2d14b";
+      for (let x = -(sceneryX % 80); x < canvas.width; x += 80) pen.fillRect(x, GROUND + 80, 40, 5);   // road lines
+
+      if (dark > 0) {                                         // darker at night...
+        pen.fillStyle = "rgba(5, 8, 35, " + dark * 0.45 + ")";
+        pen.fillRect(0, 0, canvas.width, canvas.height);
+        for (const h of houses) drawWindowLights(h, dark);    // ...but the lights come on
+        for (const t of trees) if (t.lamp) drawLampGlow(t, dark);
+      }
+    }
+
+    function drawHouse(h, dark) {
+      const base = GROUND - 4;
+      if (h.sign) {                                           // the town sign
+        pen.fillStyle = "#8d6e63";
+        pen.fillRect(h.x + 20, base - 50, 6, 50);
+        pen.fillRect(h.x + 64, base - 50, 6, 50);
+        pen.fillStyle = "#fff8e1";
+        pen.strokeStyle = "#5d4037";
+        pen.lineWidth = 3;
+        pen.fillRect(h.x, base - 78, 90, 38);
+        pen.strokeRect(h.x, base - 78, 90, 38);
+        pen.fillStyle = "#5d4037";
+        pen.font = "bold 10px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText("WELCOME TO", h.x + 45, base - 67);
+        pen.font = "bold 14px sans-serif";
+        pen.fillText("TINY TOWN", h.x + 45, base - 51);
+        return;
+      }
+      const top = base - h.h;
+      pen.fillStyle = h.color;
+      pen.fillRect(h.x, top, h.w, h.h);
+      pen.strokeStyle = "rgba(0, 0, 0, 0.25)";
+      pen.lineWidth = 2;
+      pen.strokeRect(h.x, top, h.w, h.h);
+      if (h.chimney) {
+        pen.fillStyle = "#8d6e63";
+        pen.fillRect(h.x + h.w * 0.68, top - 30, 12, 24);
+      }
+      pen.fillStyle = h.roof;                                 // roof
+      pen.beginPath();
+      pen.moveTo(h.x - 8, top);
+      pen.lineTo(h.x + h.w / 2, top - h.w * 0.38);
+      pen.lineTo(h.x + h.w + 8, top);
+      pen.closePath();
+      pen.fill();
+      pen.fillStyle = "#7b4f2c";                              // door
+      pen.fillRect(h.x + h.w / 2 - 9, base - 26, 18, 26);
+      pen.fillStyle = "#ffd75e";
+      pen.fillRect(h.x + h.w / 2 + 4, base - 14, 3, 3);
+      pen.fillStyle = dark > 0.5 ? "#2b2f55" : "#cfeeff";      // windows
+      for (let i = 0; i < h.windows; i++) {
+        const wx = h.windows === 1 ? h.x + h.w / 2 - 9 : h.x + 10 + i * (h.w - 38);
+        pen.fillRect(wx, top + 14, 18, 16);
+      }
+    }
+
+    function drawWindowLights(h, dark) {
+      if (h.sign) return;
+      const top = GROUND - 4 - h.h;
+      pen.fillStyle = "rgba(255, 214, 102, " + dark + ")";
+      for (let i = 0; i < h.windows; i++) {
+        const wx = h.windows === 1 ? h.x + h.w / 2 - 9 : h.x + 10 + i * (h.w - 38);
+        pen.fillRect(wx, top + 14, 18, 16);
+      }
+    }
+
+    function drawTree(t) {
+      if (t.lamp) {                                           // street lamp
+        pen.fillStyle = "#3d405b";
+        pen.fillRect(t.x, GROUND - 92, 5, 92);
+        pen.fillRect(t.x - 6, GROUND - 96, 17, 6);
+        pen.fillStyle = "#fff3b0";
+        pen.fillRect(t.x - 3, GROUND - 90, 11, 6);
+        return;
+      }
+      pen.fillStyle = "#7b4f2c";                              // tree
+      pen.fillRect(t.x - 4, GROUND - 46, 8, 46);
+      pen.fillStyle = "#3f9b4a";
+      pen.beginPath();
+      pen.arc(t.x, GROUND - 62, 24, 0, Math.PI * 2);
+      pen.arc(t.x - 16, GROUND - 48, 16, 0, Math.PI * 2);
+      pen.arc(t.x + 16, GROUND - 48, 16, 0, Math.PI * 2);
+      pen.fill();
+    }
+
+    function drawLampGlow(t, dark) {
+      const glow = pen.createRadialGradient(t.x + 2, GROUND - 86, 2, t.x + 2, GROUND - 86, 60);
+      glow.addColorStop(0, "rgba(255, 236, 150, " + 0.7 * dark + ")");
+      glow.addColorStop(1, "rgba(255, 236, 150, 0)");
+      pen.fillStyle = glow;
+      pen.fillRect(t.x - 60, GROUND - 146, 124, 120);
+    }
+
+    function drawObstacle(o) {
+      pen.save();
+      if (o.smashed) {
+        pen.translate(o.x + o.w / 2, o.y + o.h / 2);
+        pen.rotate(o.spin);
+        pen.translate(-(o.x + o.w / 2), -(o.y + o.h / 2));
+      }
+      const type = OBSTACLE_TYPES[o.kind];
+      if (type.emoji) {
+        pen.textAlign = "center";
+        pen.textBaseline = "bottom";
+        pen.font = (o.kind === "bike" ? 46 : o.kind === "bird" ? 30 : 38) + "px sans-serif";
+        const bob = o.kind === "bird" ? Math.sin(clock * 10) * 3 : (o.kind === "dog" ? Math.abs(Math.sin(clock * 14)) * -3 : 0);
+        pen.fillText(type.emoji, o.x + o.w / 2, o.y + o.h + 4 + bob);
+      } else if (o.kind === "can") {
+        pen.fillStyle = "#8d99ae";
+        pen.fillRect(o.x + 2, o.y + 6, o.w - 4, o.h - 6);
+        pen.fillStyle = "#6c7a91";
+        pen.fillRect(o.x, o.y, o.w, 7);
+        pen.fillRect(o.x + 11, o.y - 4, 8, 4);
+        pen.fillStyle = "rgba(0, 0, 0, 0.15)";
+        for (let i = 1; i < 4; i++) pen.fillRect(o.x + i * 7, o.y + 10, 2, o.h - 14);
+      } else if (o.kind === "cone") {
+        pen.fillStyle = "#ff7b00";
+        pen.beginPath();
+        pen.moveTo(o.x + o.w / 2, o.y);
+        pen.lineTo(o.x + o.w - 3, o.y + o.h - 5);
+        pen.lineTo(o.x + 3, o.y + o.h - 5);
+        pen.closePath();
+        pen.fill();
+        pen.fillStyle = "white";
+        pen.fillRect(o.x + 8, o.y + 15, o.w - 16, 5);
+        pen.fillStyle = "#e05e00";
+        pen.fillRect(o.x, o.y + o.h - 5, o.w, 5);
+      } else if (o.kind === "puddle") {
+        pen.fillStyle = "#4f9de0";
+        pen.beginPath();
+        pen.ellipse(o.x + o.w / 2, o.y + 4, o.w / 2, 6, 0, 0, Math.PI * 2);
+        pen.fill();
+        pen.fillStyle = "rgba(255, 255, 255, 0.6)";
+        pen.fillRect(o.x + 14, o.y + 2, 14, 2);
+      } else if (o.kind === "fence") {
+        pen.fillStyle = "#f4e3c1";
+        pen.strokeStyle = "#a1887f";
+        pen.lineWidth = 1.5;
+        for (let i = 0; i < 4; i++) {
+          const px = o.x + 2 + i * 11;
+          pen.beginPath();
+          pen.moveTo(px, o.y + o.h);
+          pen.lineTo(px, o.y + 6);
+          pen.lineTo(px + 4, o.y);
+          pen.lineTo(px + 8, o.y + 6);
+          pen.lineTo(px + 8, o.y + o.h);
+          pen.closePath();
+          pen.fill();
+          pen.stroke();
+        }
+        pen.fillRect(o.x, o.y + 12, o.w, 5);
+        pen.fillRect(o.x, o.y + 26, o.w, 5);
+      } else if (o.kind === "branch") {
+        pen.fillStyle = "#7b4f2c";
+        pen.fillRect(o.x - 10, o.y + 6, o.w + 20, 7);
+        pen.fillStyle = "#3f9b4a";
+        for (let i = 0; i < 6; i++) {
+          pen.beginPath();
+          pen.ellipse(o.x + i * 14 + 4, o.y + 4 + (i % 2) * 8, 9, 6, i, 0, Math.PI * 2);
+          pen.fill();
+        }
+      }
+      pen.restore();
+    }
+
+    function drawItem(item) {
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      if (item.kind === "star") {
+        pen.font = "22px sans-serif";
+        pen.fillText("⭐", item.x, item.y + Math.sin(clock * 6 + item.x / 40) * 2);
+      } else if (item.kind === "discovery") {
+        const rarity = RARITY[item.discovery.rarity];
+        pen.fillStyle = rarity.glow.replace(/[\d.]+\)$/, (0.35 + 0.25 * Math.sin(clock * 6)) + ")");
+        pen.beginPath();
+        pen.arc(item.x, item.y, item.r + 6, 0, Math.PI * 2);
+        pen.fill();
+        pen.font = "28px sans-serif";
+        pen.fillText(item.discovery.picture, item.x, item.y + 1);
+      } else if (item.kind === "box") {
+        const bob = Math.sin(clock * 4) * 4;
+        pen.fillStyle = "rgba(255, 215, 94, " + (0.3 + 0.2 * Math.sin(clock * 8)) + ")";
+        pen.beginPath();
+        pen.arc(item.x, item.y + bob, 24, 0, Math.PI * 2);
+        pen.fill();
+        pen.fillStyle = "#c58b4d";
+        pen.fillRect(item.x - 15, item.y - 15 + bob, 30, 30);
+        pen.strokeStyle = "#7b4f2c";
+        pen.lineWidth = 3;
+        pen.strokeRect(item.x - 15, item.y - 15 + bob, 30, 30);
+        pen.fillStyle = "white";
+        pen.font = "bold 20px sans-serif";
+        pen.fillText("?", item.x, item.y + 1 + bob);
+      }
+    }
+
+    // JAHAN (and the buddy): drawn with shapes, holding a magnifying glass because he's so curious
+    function drawKid(p) {
+      if (p.invincible > 0 && Math.sin(clock * 30) > 0.4) return;     // blink after a bump
+      const look = p.look;
+      const sliding = p.sliding > 0 && p.onGround;
+      const inAir = !p.onGround;
+      const swing = Math.sin(p.runPhase) * 0.7;
+
+      pen.save();
+      pen.translate(p.x, p.y);
+
+      if (p.balloon > 0) {                                     // balloon string and balloon
+        pen.strokeStyle = "#555";
+        pen.lineWidth = 1;
+        pen.beginPath();
+        pen.moveTo(10, -48);
+        pen.lineTo(14, -110);
+        pen.stroke();
+        pen.font = "40px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText("🎈", 14, -126);
+      }
+      if (p.skate > 0 && !sliding) {                           // skateboard
+        pen.fillStyle = "#e63946";
+        pen.fillRect(-20, -4, 40, 5);
+        pen.fillStyle = "#222";
+        pen.beginPath();
+        pen.arc(-12, 3, 3.5, 0, Math.PI * 2);
+        pen.arc(12, 3, 3.5, 0, Math.PI * 2);
+        pen.fill();
+      }
+      if (sliding) {                                           // lean back and slide!
+        pen.translate(14, 0);
+        pen.rotate(-1.25);
+      }
+      const lift = p.skate > 0 && !sliding ? -5 : 0;
+      pen.translate(0, lift);
+
+      // legs
+      pen.lineCap = "round";
+      pen.lineWidth = 6;
+      pen.strokeStyle = look.skin;
+      const legs = inAir ? [0.9, -0.5] : (p.skate > 0 || sliding ? [0.2, -0.2] : [swing, -swing]);
+      for (const angle of legs) {
+        pen.beginPath();
+        pen.moveTo(0, -22);
+        const kneeX = Math.sin(angle) * 11;
+        const footX = Math.sin(angle) * 20 + (inAir ? -4 : 0);
+        pen.lineTo(kneeX, -12);
+        pen.lineTo(footX, 0 - (inAir ? 6 : 0));
+        pen.stroke();
+        pen.fillStyle = "white";                              // shoes
+        pen.fillRect(footX - 4, -4 - (inAir ? 6 : 0), 10, 5);
+      }
+      // shorts
+      pen.fillStyle = look.shorts;
+      pen.fillRect(-9, -30, 18, 11);
+      // back arm
+      pen.strokeStyle = look.skin;
+      pen.lineWidth = 5;
+      pen.beginPath();
+      pen.moveTo(-2, -42);
+      pen.lineTo(-2 - Math.sin(swing) * 10, inAir ? -54 : -28);
+      pen.stroke();
+      // shirt (with a star on it)
+      pen.fillStyle = look.shirt;
+      pen.beginPath();
+      pen.moveTo(-10, -47);
+      pen.lineTo(10, -47);
+      pen.lineTo(11, -28);
+      pen.lineTo(-11, -28);
+      pen.closePath();
+      pen.fill();
+      pen.fillStyle = "rgba(255, 255, 255, 0.85)";
+      pen.font = "9px sans-serif";
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillText("★", 0, -37);
+      // front arm holding the magnifying glass
+      pen.strokeStyle = look.skin;
+      pen.lineWidth = 5;
+      const handX = 14;
+      const handY = inAir ? -52 : -38 + Math.sin(p.runPhase * 2) * 2;
+      pen.beginPath();
+      pen.moveTo(4, -43);
+      pen.lineTo(handX, handY);
+      pen.stroke();
+      pen.strokeStyle = "#5d4037";
+      pen.lineWidth = 3;
+      pen.beginPath();
+      pen.moveTo(handX, handY);
+      pen.lineTo(handX + 6, handY - 6);
+      pen.stroke();
+      pen.fillStyle = "rgba(190, 235, 255, 0.6)";
+      pen.strokeStyle = "#444";
+      pen.lineWidth = 2;
+      pen.beginPath();
+      pen.arc(handX + 11, handY - 11, 7, 0, Math.PI * 2);
+      pen.fill();
+      pen.stroke();
+      // head
+      pen.fillStyle = look.skin;
+      pen.beginPath();
+      pen.arc(2, -59, 11, 0, Math.PI * 2);
+      pen.fill();
+      // hair (a little messy, like a curious kid's)
+      pen.fillStyle = look.hair;
+      pen.beginPath();
+      pen.arc(1, -61, 11, Math.PI * 1.05, Math.PI * 2.05);
+      pen.fill();
+      pen.beginPath();
+      pen.moveTo(-8, -66); pen.lineTo(-6, -75); pen.lineTo(-2, -68);
+      pen.lineTo(1, -77); pen.lineTo(4, -68); pen.lineTo(9, -74); pen.lineTo(10, -64);
+      pen.fill();
+      // big curious eye, raised eyebrow and a smile
+      pen.fillStyle = "white";
+      pen.beginPath();
+      pen.ellipse(7, -59, 3.6, 4.2, 0, 0, Math.PI * 2);
+      pen.fill();
+      pen.fillStyle = "#1b1b1b";
+      pen.beginPath();
+      pen.arc(8.3, -59.6, 1.9, 0, Math.PI * 2);
+      pen.fill();
+      pen.strokeStyle = look.hair;
+      pen.lineWidth = 1.5;
+      pen.beginPath();
+      pen.moveTo(4, -65.5);
+      pen.lineTo(10, -67);
+      pen.stroke();
+      pen.strokeStyle = "#5a2d1a";
+      pen.beginPath();
+      pen.arc(7, -54, 3, 0.1 * Math.PI, 0.9 * Math.PI);
+      pen.stroke();
+      pen.restore();
+
+      if (p.helmet > 0) {                                      // helmet
+        pen.fillStyle = "rgba(125, 249, 255, 0.85)";
+        pen.beginPath();
+        pen.arc(p.x + 2, p.y - 62 + (p.skate > 0 ? -5 : 0), 13, Math.PI, Math.PI * 2);
+        pen.fill();
+      }
+      if (playerCount === 2) {
+        pen.fillStyle = "white";
+        pen.strokeStyle = "rgba(0, 0, 0, 0.6)";
+        pen.lineWidth = 3;
+        pen.font = "bold 12px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "bottom";
+        const label = p === players[0] ? "P1" : "P2";
+        pen.strokeText(label, p.x + 2, p.y - 80);
+        pen.fillText(label, p.x + 2, p.y - 80);
+      }
+    }
+
+    function drawButtons() {
+      for (const b of buttons) {
+        pen.fillStyle = "#ffd75e";
+        pen.fillRect(b.x, b.y, b.width, b.height);
+        pen.fillStyle = "#1d2340";
+        pen.font = "bold 20px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText(b.label, b.x + b.width / 2, b.y + b.height / 2);
+      }
+    }
+
+    function drawDifficultyButtons() {
+      for (const b of difficultyButtons) {
+        const picked = b.name === difficulty;
+        pen.fillStyle = picked ? "#ffd75e" : "rgba(255, 255, 255, 0.1)";
+        pen.fillRect(b.x, b.y, b.width, b.height);
+        pen.strokeStyle = picked ? "#ffd75e" : "#8a8fb0";
+        pen.lineWidth = 2;
+        pen.strokeRect(b.x, b.y, b.width, b.height);
+        pen.fillStyle = picked ? "#1d2340" : "white";
+        pen.font = "bold 17px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText(DIFFICULTIES[b.name].label, b.x + b.width / 2, b.y + b.height / 2 + 1);
+      }
+    }
+
+    function drawLeaderboard(top) {
+      pen.textBaseline = "middle";
+      pen.textAlign = "center";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 17px sans-serif";
+      pen.fillText((isOnline() ? "🌍 WORLD TOP 3 · " : "📱 TOP 3 ON THIS DEVICE · ") + settings().label, canvas.width / 2, top);
+      const medals = ["🥇", "🥈", "🥉"];
+      for (let i = 0; i < 3; i++) {
+        const entry = board()[i];
+        const y = top + 28 + i * 24;
+        const isNew = entry && isJustAdded(entry);
+        pen.font = (isNew ? "bold " : "") + "18px sans-serif";
+        pen.fillStyle = isNew ? "#ffd75e" : (entry ? "white" : "#8a8fb0");
+        pen.textAlign = "left";
+        const shownName = entry ? (isKidFriendly(entry.name) ? entry.name : "★★★") : "-----";
+        pen.fillText(medals[i] + "  " + shownName, 125, y);
+        pen.textAlign = "right";
+        pen.fillText(entry ? String(entry.score) : "", 355, y);
+      }
+    }
+
+    function drawOtherBests(y) {
+      const parts = [];
+      for (const name of DIFFICULTY_ORDER) {
+        if (name === difficulty) continue;
+        const list = onlineScores[name] || scores[name];
+        const top = list[0];
+        parts.push(DIFFICULTIES[name].label + ": " + (top && isKidFriendly(top.name) ? top.name + " " + top.score : "—"));
+      }
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "#c7cbe6";
+      pen.font = "13px sans-serif";
+      pen.fillText("#1 on " + parts.join("   ·   "), canvas.width / 2, y);
+    }
+
+    function drawPlayingAs() {
+      if (!names[0]) return;
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "16px sans-serif";
+      const who = playerCount === 2 && names[1] ? names[0] + " & " + names[1] : names[0];
+      pen.fillText("👤 Playing as " + who, canvas.width / 2, 506);
+      const b = changeNameButton;
+      pen.fillStyle = "#1d2340";
+      pen.fillRect(b.x, b.y, b.width, b.height);
+      pen.strokeStyle = "#8a8fb0";
+      pen.lineWidth = 2;
+      pen.strokeRect(b.x, b.y, b.width, b.height);
+      pen.fillStyle = "#cfd3ee";
+      pen.font = "bold 15px sans-serif";
+      pen.fillText("✏️ Change name", b.x + b.width / 2, b.y + b.height / 2 + 1);
+    }
+
+    function dimScreen() {
+      pen.fillStyle = "rgba(10, 12, 40, 0.72)";
+      pen.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // the Curiosity Book on the start screen: found discoveries, and ❔ for the rest
+    function drawBook(top) {
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 14px sans-serif";
+      pen.fillText("📖 JAHAN'S CURIOSITY BOOK: " + bookCount() + " / " + DISCOVERIES.length, canvas.width / 2, top);
+      pen.font = "17px sans-serif";
+      DISCOVERIES.forEach(function (d, i) {
+        const x = canvas.width / 2 + ((i % 8) - 3.5) * 30;
+        const y = top + 24 + Math.floor(i / 8) * 24;
+        pen.globalAlpha = book[d.name] ? 1 : 0.35;
+        pen.fillText(book[d.name] ? d.picture : "❔", x, y);
+      });
+      pen.globalAlpha = 1;
+    }
+
+    function drawStartScreen() {
+      dimScreen();
+      drawBook(66);
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "bold 46px sans-serif";
+      pen.fillText("JAHAN DASH", canvas.width / 2, 160);
+      pen.font = "16px sans-serif";
+      pen.fillText("Curious Jahan explores Tiny Town. Jump, slide, discover!", canvas.width / 2, 198);
+      drawDifficultyButtons();
+      drawLeaderboard(290);
+      drawOtherBests(386);
+      pen.textAlign = "center";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 19px sans-serif";
+      pen.fillText("How many players?", canvas.width / 2, 408);
+      drawButtons();
+      drawPlayingAs();
+    }
+
+    function drawGameOverScreen() {
+      dimScreen();
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "bold 44px sans-serif";
+      pen.fillText("GAME OVER", canvas.width / 2, 100);
+      pen.font = "19px sans-serif";
+      pen.fillText(resultText(), canvas.width / 2, 140);
+      const p = players[0];
+      pen.font = "16px sans-serif";
+      pen.fillStyle = "#cfd3ee";
+      pen.fillText("🏃 " + Math.floor(teamStat("meters")) + " m    ⭐ " + teamStat("stars") + "    🔍 " + teamStat("found") +
+        "    🎯 " + missionsDone + (missionsDone === 1 ? " mission" : " missions"), canvas.width / 2, 168);
+      if (justAdded.length > 0) {
+        const who = justAdded.map(function (e) { return e.name; }).join(" & ");
+        pen.fillStyle = "#ffd75e";
+        pen.font = "bold 20px sans-serif";
+        pen.fillText(newBest ? "🏆 NEW HIGH SCORE, " + justAdded[0].name + "!" : "🏆 " + who + " made the top 3!", canvas.width / 2, 198);
+      } else if (!checkingScores && board().length >= 3) {            // so close!
+        const needed = board()[2].score - Math.max(p.score, playerCount === 2 ? players[1].score : 0) + 1;
+        if (needed > 0) {
+          pen.fillStyle = "#ffb3c7";
+          pen.font = "bold 17px sans-serif";
+          pen.fillText("Only " + needed + " more points to reach the top 3!", canvas.width / 2, 198);
+        }
+      }
+      drawDifficultyButtons();
+      drawLeaderboard(290);
+      if (onlineNote) {
+        pen.textAlign = "center";
+        pen.fillStyle = "#ff8fc7";
+        pen.font = "13px sans-serif";
+        pen.fillText(onlineNote + " Saved on this device.", canvas.width / 2, 386);
+      } else {
+        drawOtherBests(386);
+      }
+      pen.textAlign = "center";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 19px sans-serif";
+      if (checkingScores) {
+        pen.fillText("Checking the scoreboard…", canvas.width / 2, 408);
+      } else {
+        pen.fillText("Play again?", canvas.width / 2, 408);
+        drawButtons();
+        drawPlayingAs();
+      }
+    }
+
+    function drawMessage(title, line) {
+      dimScreen();
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "bold 44px sans-serif";
+      pen.fillText(title, canvas.width / 2, canvas.height / 2 - 30);
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 19px sans-serif";
+      pen.fillText(line, canvas.width / 2, canvas.height / 2 + 20);
+    }
+
+    // text with a dark outline, so it shows up on any sky
+    function outlinedText(text, x, y, color) {
+      pen.strokeStyle = "rgba(0, 0, 0, 0.55)";
+      pen.lineWidth = 4;
+      pen.strokeText(text, x, y);
+      pen.fillStyle = color;
+      pen.fillText(text, x, y);
+    }
+
+    function drawScore(p, y) {
+      pen.fillStyle = p.look.shirt;
+      pen.fillRect(16, y, 16, 16);
+      pen.strokeStyle = "white";
+      pen.lineWidth = 2;
+      pen.strokeRect(16, y, 16, 16);
+      pen.font = "bold 18px sans-serif";
+      pen.textAlign = "left";
+      pen.textBaseline = "top";
+      let text = displayName(p) + ": " + p.score;
+      if (playerCount === 2) text += p.alive ? "  ❤️" + p.lives : "  💥";
+      outlinedText(text, 40, y - 1, "white");
+    }
+
+    function drawHud() {
+      drawScore(players[0], 12);
+      if (playerCount === 2) drawScore(players[1], 36);
+      pen.font = "bold 18px sans-serif";
+      pen.textAlign = "center";
+      pen.textBaseline = "top";
+      outlinedText(Math.floor(teamStat("meters")) + " m", canvas.width / 2 + 40, 12, "white");
+      pen.textAlign = "right";
+      if (playerCount === 1) pen.fillText("❤️".repeat(Math.max(0, players[0].lives)), canvas.width - 16, 12);
+      pen.font = "13px sans-serif";
+      outlinedText(settings().label + " · Best " + best, canvas.width - 16, 38, "#eef0ff");
+
+      if (gameState === "playing" || gameState === "paused") {
+        // the current mission
+        if (mission) {
+          pen.textAlign = "center";
+          pen.font = "bold 14px sans-serif";
+          outlinedText("🎯 " + mission.text + "  (" + Math.min(missionTarget(), Math.max(0, missionProgress())) + "/" + missionTarget() + ")",
+            canvas.width / 2, 62, "#ffe9a8");
+        }
+        // power-ups that are on
+        const active = [];
+        for (const p of activePlayers()) {
+          if (!p.alive) continue;
+          const who = playerCount === 2 ? (p === players[0] ? "P1" : "P2") : "";
+          for (const name of Object.keys(POWER_UPS)) {
+            if (p[name] > 0) active.push(who + POWER_UPS[name].picture + Math.ceil(p[name]));
+          }
+        }
+        if (active.length > 0) {
+          pen.font = "bold 14px sans-serif";
+          outlinedText(active.join("   "), canvas.width / 2, 84, "#7df9ff");
+        }
+      }
+    }
+
+    function draw() {
+      pen.save();
+      if (shakeTime > 0) pen.translate((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
+      drawScenery();
+
+      const playing = gameState === "playing" || gameState === "paused";
+      if (playing) {
+        for (const o of obstacles) drawObstacle(o);
+        for (const item of items) drawItem(item);
+        for (const p of activePlayers()) if (p.alive) drawKid(p);
+      } else {
+        // on the menus, Jahan runs in place on the sidewalk
+        const p = players[0];
+        p.x = 150;
+        p.y = GROUND;
+        p.onGround = true;
+        p.sliding = 0;
+        p.balloon = 0;
+        p.skate = 0;
+        p.helmet = 0;
+        p.invincible = 0;
+        p.runPhase += 0.12;
+        drawKid(p);
+      }
+
+      for (const s of sparkles) {
+        pen.globalAlpha = Math.max(0, s.life / 0.6);
+        pen.fillStyle = s.color;
+        pen.fillRect(s.x - 2, s.y - 2, 4, 4);
+      }
+      pen.globalAlpha = 1;
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.font = "bold 16px sans-serif";
+      for (const word of popups) {
+        pen.globalAlpha = Math.max(0, Math.min(1, word.life));
+        outlinedText(word.text, word.x, word.y, word.color);
+      }
+      pen.globalAlpha = 1;
+      pen.restore();
+
+      drawHud();
+
+      // controls reminder
+      pen.font = "14px sans-serif";
+      pen.textAlign = "center";
+      pen.textBaseline = "bottom";
+      let hint;
+      if (gameState === "start" || gameState === "gameover") {
+        hint = touchScreen ? "Tap a button to start" : "← → difficulty    1 / 2: players    N: change name";
+      } else if (touchScreen) {
+        hint = playerCount === 2 ? "Left side: P1    Right side: P2    Tap = jump, swipe down = slide" : "Tap = jump (tap again in the air!)   Swipe down = slide";
+      } else {
+        hint = playerCount === 2 ? "P1: Space/W jump, S slide    P2: ↑ jump, ↓ slide" :
+          "Space/↑ jump (twice = double jump)   ↓ slide   P pause   M sound";
+      }
+      outlinedText(hint, canvas.width / 2, canvas.height - 8, "#eef0ff");
+
+      if (bannerTimer > 0 && gameState === "playing") {
+        pen.globalAlpha = Math.min(1, bannerTimer);
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.font = "bold 34px sans-serif";
+        outlinedText(bannerText, canvas.width / 2, 200, "#ffd75e");
+        if (bannerSub) {
+          pen.font = "bold 17px sans-serif";
+          outlinedText(bannerSub, canvas.width / 2, 236, "white");
+        }
+        pen.globalAlpha = 1;
+      }
+
+      if (gameState === "start") drawStartScreen();
+      if (gameState === "paused") drawMessage("PAUSED", touchScreen ? "Tap to keep playing" : "Press P or click to keep playing");
+      if (gameState === "gameover") drawGameOverScreen();
+    }
+
+    function resultText() {
+      if (playerCount === 1) return "You scored " + players[0].score + " points";
+      const p1 = players[0].score;
+      const p2 = players[1].score;
+      if (p1 > p2) return displayName(players[0]) + " wins, " + p1 + " to " + p2 + "!";
+      if (p2 > p1) return displayName(players[1]) + " wins, " + p2 + " to " + p1 + "!";
+      return "It's a tie, " + p1 + " to " + p2 + "!";
+    }
+
+    // ---------------------------------------------------------------
+    // 6. GAME LOOP
+    // ---------------------------------------------------------------
+    let lastTime = performance.now();
+
+    function loop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    for (const name of DIFFICULTY_ORDER) loadOnlineScores(name);
+    lastOnlineCheck = 0;
+    lastAllCheck = 0;
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
