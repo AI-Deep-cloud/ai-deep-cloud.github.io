@@ -11,6 +11,15 @@ window.SITE = {
   },
   "games": [
     {
+      "id": "maze-muncher",
+      "title": "Maze Muncher",
+      "picture": "\ud83d\udc7e",
+      "about": "Eat every dot in the maze while four sneaky monsters hunt you. Grab a power dot and chase them back! 1 or 2 players.",
+      "file": "games/maze-muncher.html",
+      "files": ["games/maze-muncher.html"],
+      "date": "2026-10-11"
+    },
+    {
       "id": "rocket-hop",
       "title": "Rocket Hop",
       "picture": "\ud83d\ude80",
