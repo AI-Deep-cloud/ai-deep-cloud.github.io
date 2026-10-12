@@ -146,6 +146,12 @@
     // ---------------------------------------------------------------
     const canvas = document.getElementById("game");
     const pen = canvas.getContext("2d");
+    const W = 480;                   // the game is always 480 wide and 600 tall...
+    const H = 600;
+    // ...but it's drawn with extra detail on sharp screens (like phones), so it never looks blurry
+    const DPR = Math.min(3, window.devicePixelRatio || 1);
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
     const GROUND = 560;              // where the moon's surface starts
     const GAME_ID = "rocket-hop";    // this game's name in the online scoreboard
 
@@ -287,7 +293,7 @@
     const backgroundStars = [];
     for (let i = 0; i < 70; i++) {
       backgroundStars.push({
-        x: Math.random() * canvas.width,
+        x: Math.random() * W,
         y: Math.random() * GROUND,
         size: Math.random() < 0.2 ? 2 : 1,
         speed: 0.1 + Math.random() * 0.35      // far stars move slower than near ones
@@ -683,8 +689,8 @@
     function gameSpot(event) {
       const box = canvas.getBoundingClientRect();
       return {
-        x: (event.clientX - box.left) * canvas.width / box.width,
-        y: (event.clientY - box.top) * canvas.height / box.height
+        x: (event.clientX - box.left) * W / box.width,
+        y: (event.clientY - box.top) * H / box.height
       };
     }
 
@@ -724,7 +730,7 @@
         return;
       }
       // tap to hop. With 2 players: left half is Player 1, right half is Player 2
-      if (playerCount === 1 || spot.x < canvas.width / 2) hop(players[0]);
+      if (playerCount === 1 || spot.x < W / 2) hop(players[0]);
       else hop(players[1]);
     });
 
@@ -764,7 +770,7 @@
       let gapY = lowest + Math.random() * (highest - lowest);
       gapY = Math.max(lastGapY - 170, Math.min(lastGapY + 170, gapY));   // never an impossible jump
       lastGapY = gapY;
-      const wall = { x: canvas.width + 10, width: 66, gapY: gapY, gap: gap, passedBy: [false, false], counted: false };
+      const wall = { x: W + 10, width: 66, gapY: gapY, gap: gap, passedBy: [false, false], counted: false };
       walls.push(wall);
 
       const roll = Math.random();
@@ -808,7 +814,7 @@
     }
 
     function popup(text, x, y, color) {
-      popups.push({ text: text, x: Math.max(90, Math.min(canvas.width - 90, x)), y: y, color: color, life: 1 });
+      popups.push({ text: text, x: Math.max(90, Math.min(W - 90, x)), y: y, color: color, life: 1 });
     }
 
     function banner(text) {
@@ -891,7 +897,7 @@
       for (const s of backgroundStars) {
         s.x -= speed * s.speed * dt;
         if (s.x < 0) {
-          s.x += canvas.width;
+          s.x += W;
           s.y = Math.random() * GROUND;
         }
       }
@@ -939,7 +945,7 @@
         if (bonusTimer <= 0) {
           bonusTimer = 0.16;
           bonusWave += 0.45;
-          items.push({ kind: "bonus", picture: "🌟", x: canvas.width + 20, y: 290 + Math.sin(bonusWave) * 170, r: 15 });
+          items.push({ kind: "bonus", picture: "🌟", x: W + 20, y: 290 + Math.sin(bonusWave) * 170, r: 15 });
         }
         if (bonusTime <= 0) {
           bonusTime = 0;
@@ -1056,7 +1062,7 @@
     // ---------------------------------------------------------------
     function drawBackground() {
       pen.fillStyle = "#0d1030";
-      pen.fillRect(0, 0, canvas.width, canvas.height);
+      pen.fillRect(0, 0, W, H);
 
       for (const s of backgroundStars) {
         pen.globalAlpha = 0.35 + s.speed;
@@ -1079,17 +1085,17 @@
       // golden glow in a coin rush
       if (bonusTime > 0) {
         pen.fillStyle = "rgba(255, 200, 60, " + (0.1 + 0.05 * Math.sin(clock * 6)) + ")";
-        pen.fillRect(0, 0, canvas.width, canvas.height);
+        pen.fillRect(0, 0, W, H);
       }
     }
 
     function drawGround() {
       pen.fillStyle = "#3a3f6b";
-      pen.fillRect(0, GROUND, canvas.width, canvas.height - GROUND);
+      pen.fillRect(0, GROUND, W, H - GROUND);
       pen.fillStyle = "white";
-      pen.fillRect(0, GROUND, canvas.width, 3);
+      pen.fillRect(0, GROUND, W, 3);
       pen.fillStyle = "#2b2f55";
-      for (let x = -groundOffset; x < canvas.width + 80; x += 80) {     // craters scroll by
+      for (let x = -groundOffset; x < W + 80; x += 80) {     // craters scroll by
         pen.beginPath();
         pen.ellipse(x + 30, GROUND + 18, 16, 5, 0, 0, Math.PI * 2);
         pen.fill();
@@ -1226,7 +1232,7 @@
       pen.textAlign = "center";
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 17px sans-serif";
-      pen.fillText((isOnline() ? "🌍 WORLD TOP 3 · " : "📱 TOP 3 ON THIS DEVICE · ") + settings().label, canvas.width / 2, top);
+      pen.fillText((isOnline() ? "🌍 WORLD TOP 3 · " : "📱 TOP 3 ON THIS DEVICE · ") + settings().label, W / 2, top);
       const medals = ["🥇", "🥈", "🥉"];
       for (let i = 0; i < 3; i++) {
         const entry = board()[i];
@@ -1254,7 +1260,7 @@
       pen.textBaseline = "middle";
       pen.fillStyle = "#aab";
       pen.font = "13px sans-serif";
-      pen.fillText("#1 on " + parts.join("   ·   "), canvas.width / 2, y);
+      pen.fillText("#1 on " + parts.join("   ·   "), W / 2, y);
     }
 
     function drawPlayingAs() {
@@ -1264,7 +1270,7 @@
       pen.fillStyle = "white";
       pen.font = "16px sans-serif";
       const who = playerCount === 2 && names[1] ? names[0] + " & " + names[1] : names[0];
-      pen.fillText("👤 Playing as " + who, canvas.width / 2, 506);
+      pen.fillText("👤 Playing as " + who, W / 2, 506);
       const b = changeNameButton;
       pen.strokeStyle = "#8a8fb0";
       pen.lineWidth = 2;
@@ -1276,7 +1282,7 @@
 
     function dimScreen() {
       pen.fillStyle = "rgba(0, 0, 0, 0.62)";
-      pen.fillRect(0, 0, canvas.width, canvas.height);
+      pen.fillRect(0, 0, W, H);
     }
 
     function drawStartScreen() {
@@ -1285,21 +1291,21 @@
       pen.textBaseline = "middle";
       pen.font = "14px sans-serif";
       pen.fillStyle = "#cfd3ee";
-      pen.fillText("❤️ extra life    🛡️ shield    🍄 mini rocket", canvas.width / 2, 72);
-      pen.fillText("🧲 star magnet    🐢 slow motion    💎 double points", canvas.width / 2, 94);
-      pen.fillText("⭐ +1 point    🌟 Coin Rush every 3 levels", canvas.width / 2, 116);
+      pen.fillText("❤️ extra life    🛡️ shield    🍄 mini rocket", W / 2, 72);
+      pen.fillText("🧲 star magnet    🐢 slow motion    💎 double points", W / 2, 94);
+      pen.fillText("⭐ +1 point    🌟 Coin Rush every 3 levels", W / 2, 116);
       pen.fillStyle = "white";
       pen.font = "bold 44px sans-serif";
-      pen.fillText("ROCKET HOP", canvas.width / 2, 160);
+      pen.fillText("ROCKET HOP", W / 2, 160);
       pen.font = "18px sans-serif";
-      pen.fillText("Tap to fly! Dodge the rocks, grab the stars.", canvas.width / 2, 198);
+      pen.fillText("Tap to fly! Dodge the rocks, grab the stars.", W / 2, 198);
       drawDifficultyButtons();
       drawLeaderboard(290);
       drawOtherBests(386);
       pen.textAlign = "center";
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 19px sans-serif";
-      pen.fillText("How many players?", canvas.width / 2, 408);
+      pen.fillText("How many players?", W / 2, 408);
       drawButtons();
       drawPlayingAs();
     }
@@ -1310,14 +1316,14 @@
       pen.textBaseline = "middle";
       pen.fillStyle = "white";
       pen.font = "bold 44px sans-serif";
-      pen.fillText("GAME OVER", canvas.width / 2, 128);
+      pen.fillText("GAME OVER", W / 2, 128);
       pen.font = "20px sans-serif";
-      pen.fillText(resultText(), canvas.width / 2, 168);
+      pen.fillText(resultText(), W / 2, 168);
       if (justAdded.length > 0) {
         const who = justAdded.map(function (e) { return e.name; }).join(" & ");
         pen.fillStyle = "#ffd75e";
         pen.font = "bold 20px sans-serif";
-        pen.fillText(newBest ? "🏆 NEW HIGH SCORE, " + justAdded[0].name + "!" : "🏆 " + who + " made the top 3!", canvas.width / 2, 196);
+        pen.fillText(newBest ? "🏆 NEW HIGH SCORE, " + justAdded[0].name + "!" : "🏆 " + who + " made the top 3!", W / 2, 196);
       }
       drawDifficultyButtons();
       drawLeaderboard(290);
@@ -1325,7 +1331,7 @@
         pen.textAlign = "center";
         pen.fillStyle = "#ff8fc7";
         pen.font = "13px sans-serif";
-        pen.fillText(onlineNote + " Saved on this device.", canvas.width / 2, 386);
+        pen.fillText(onlineNote + " Saved on this device.", W / 2, 386);
       } else {
         drawOtherBests(386);
       }
@@ -1333,9 +1339,9 @@
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 19px sans-serif";
       if (checkingScores) {
-        pen.fillText("Checking the scoreboard…", canvas.width / 2, 408);
+        pen.fillText("Checking the scoreboard…", W / 2, 408);
       } else {
-        pen.fillText("Play again?", canvas.width / 2, 408);
+        pen.fillText("Play again?", W / 2, 408);
         drawButtons();
         drawPlayingAs();
       }
@@ -1347,10 +1353,10 @@
       pen.textBaseline = "middle";
       pen.fillStyle = "white";
       pen.font = "bold 44px sans-serif";
-      pen.fillText(title, canvas.width / 2, canvas.height / 2 - 30);
+      pen.fillText(title, W / 2, H / 2 - 30);
       pen.fillStyle = "#ffd75e";
       pen.font = "bold 19px sans-serif";
-      pen.fillText(line, canvas.width / 2, canvas.height / 2 + 20);
+      pen.fillText(line, W / 2, H / 2 + 20);
     }
 
     function drawScore(p, y) {
@@ -1384,10 +1390,11 @@
       pen.font = "bold 15px sans-serif";
       pen.textAlign = "center";
       pen.textBaseline = "top";
-      pen.fillText(active.join("   "), canvas.width / 2 + 40, 44);
+      pen.fillText(active.join("   "), W / 2 + 40, 44);
     }
 
     function draw() {
+      pen.setTransform(DPR, 0, 0, DPR, 0, 0);         // draw everything at full sharpness
       drawBackground();
 
       // --- the game world (this part shakes) ---
@@ -1431,16 +1438,16 @@
       pen.textBaseline = "top";
       if (bonusTime > 0) {
         pen.fillStyle = "#ffd75e";
-        pen.fillText("RUSH " + Math.ceil(bonusTime), canvas.width / 2 + 40, 14);
+        pen.fillText("RUSH " + Math.ceil(bonusTime), W / 2 + 40, 14);
       } else {
         pen.fillStyle = "white";
-        pen.fillText("Level " + level, canvas.width / 2 + 40, 14);
+        pen.fillText("Level " + level, W / 2 + 40, 14);
       }
       pen.textAlign = "right";
-      if (playerCount === 1) pen.fillText("❤️".repeat(Math.max(0, players[0].lives)), canvas.width - 16, 14);
+      if (playerCount === 1) pen.fillText("❤️".repeat(Math.max(0, players[0].lives)), W - 16, 14);
       pen.font = "14px sans-serif";
       pen.fillStyle = "#aab";
-      pen.fillText(settings().label + " · Best " + best, canvas.width - 16, 44);
+      pen.fillText(settings().label + " · Best " + best, W - 16, 44);
 
       drawActivePowerUps();
 
@@ -1458,7 +1465,7 @@
         hint = (playerCount === 2 ? "P1: Space / W    P2: ↑ / Enter" : "Space, ↑, W or click to hop") +
           "    P: pause    M: sound " + (soundOn ? "on" : "off");
       }
-      pen.fillText(hint, canvas.width / 2, canvas.height - 6);
+      pen.fillText(hint, W / 2, H - 6);
 
       if (bannerTimer > 0) {
         pen.globalAlpha = Math.min(1, bannerTimer);
@@ -1466,7 +1473,7 @@
         pen.font = "bold 44px sans-serif";
         pen.textAlign = "center";
         pen.textBaseline = "middle";
-        pen.fillText(bannerText, canvas.width / 2, canvas.height / 2 - 60);
+        pen.fillText(bannerText, W / 2, H / 2 - 60);
         pen.globalAlpha = 1;
       }
 
