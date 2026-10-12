@@ -1,0 +1,1485 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- tells phones to show the page at its real size instead of zoomed out -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rocket Hop</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    /* the game area: as big as fits the screen, always 480 x 600 in shape */
+    .stage {
+      position: relative;
+      width: min(480px, 100vw, calc(95vh * 0.8));
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #0d1030;
+      border: 3px solid #fff;
+      box-sizing: border-box;
+      touch-action: none;        /* tapping flies the rocket, it doesn't scroll the page */
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    /* the box where you type your name */
+    .name-form {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(300px, 82%);
+      padding: 18px;
+      background: #1d2340;
+      border: 3px solid #ffd75e;
+      border-radius: 8px;
+      box-shadow: 6px 6px 0 #000;
+      color: #fff;
+      font-family: sans-serif;
+      text-align: center;
+    }
+    .name-form .trophy { font-size: 40px; line-height: 1; }
+    .name-form h2 { margin: 8px 0 2px; font-size: 22px; color: #ffd75e; }
+    .name-form p { margin: 0 0 12px; color: #cfd3ee; }
+    .name-form input {
+      width: 100%;
+      padding: 10px;
+      font-size: 20px;
+      text-align: center;
+      background: #12152b;
+      color: #fff;
+      border: 2px solid #fff;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    .name-form input:focus { outline: none; border-color: #ffd75e; }
+    .name-form .name-label { display: block; margin: 10px 0 4px; text-align: left; font-weight: bold; font-size: 14px; color: #cfd3ee; }
+    .name-form .name-error { margin: 10px 0 0; color: #ff8fc7; font-weight: bold; }
+    .name-form .row { display: flex; gap: 8px; margin-top: 12px; }
+    .name-form button {
+      flex: 1;
+      padding: 10px;
+      font: bold 17px sans-serif;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .name-form .save { background: #ffd75e; color: #1d2340; border: 2px solid #ffd75e; }
+    .name-form .skip { background: transparent; color: #fff; border: 2px solid #fff; }
+    .hidden { display: none !important; }
+    /* link back to the arcade's home page */
+    .back {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      padding: 6px 12px;
+      background: #ffd75e;
+      color: #1d2340;
+      font: bold 15px sans-serif;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <a class="back" href="../index.html">&larr; Arcade</a>
+  <div class="stage">
+    <canvas id="game" width="480" height="600"></canvas>
+
+    <!-- asks for your name before you play -->
+    <form class="name-form hidden" id="name-form" autocomplete="off">
+      <div class="trophy">🚀</div>
+      <h2>What's your name?</h2>
+      <p>It goes on the scoreboard when you get a top score.</p>
+      <label class="name-label hidden" id="name-label-1" for="name-input-1">Player 1</label>
+      <input id="name-input-1" type="text" maxlength="12" placeholder="Your name" aria-label="Player 1 name" spellcheck="false">
+      <label class="name-label hidden" id="name-label-2" for="name-input-2">Player 2</label>
+      <input class="hidden" id="name-input-2" type="text" maxlength="12" placeholder="Player 2's name" aria-label="Player 2 name" spellcheck="false">
+      <p class="name-error hidden" id="name-error" role="alert"></p>
+      <div class="row">
+        <button class="save" type="submit" id="name-go">Play ▶</button>
+        <button class="skip" type="button" id="name-cancel">Back</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    // ===============================================================
+    //  ROCKET HOP
+    //  Tap to fly your rocket through the gaps in the asteroid walls.
+    //  Built the same way as Star Catcher: STATE, INPUT, UPDATE, DRAW and the GAME LOOP.
+    // ===============================================================
+
+    // ---------------------------------------------------------------
+    // 1. SETUP
+    // ---------------------------------------------------------------
+    const canvas = document.getElementById("game");
+    const pen = canvas.getContext("2d");
+    const GROUND = 560;              // where the moon's surface starts
+    const GAME_ID = "rocket-hop";    // this game's name in the online scoreboard
+
+    // ---------------------------------------------------------------
+    // 2. STATE
+    // ---------------------------------------------------------------
+    function makePlayer(name, color, x) {
+      return {
+        name: name,
+        color: color,            // the rocket's color. Try changing it!
+        x: x, y: 280,            // where the rocket is
+        vy: 0,                   // speed up (-) or down (+)
+        r: 13,                   // size of its hit circle
+        lives: 0,
+        score: 0,
+        alive: false,
+        invincible: 0,           // seconds of blinking after a crash
+        shieldTime: 0,           // power-ups: seconds left
+        miniTime: 0,
+        magnetTime: 0,
+        doubleTime: 0,
+        flameTime: 0             // how long to show the flame after a hop
+      };
+    }
+    const players = [
+      makePlayer("Player 1", "#ff9f43", 150),
+      makePlayer("Player 2", "#ff8fc7", 100)
+    ];
+    let playerCount = 1;
+
+    // POWER-UPS. Each one has a picture, a message, and how many seconds it lasts.
+    const POWER_UPS = {
+      life:   { picture: "❤️", message: "+1 LIFE!" },
+      shield: { picture: "🛡️", message: "SHIELD!",        seconds: 12 },   // forgives one crash
+      mini:   { picture: "🍄", message: "MINI ROCKET!",   seconds: 8 },    // smaller = easier to fit
+      magnet: { picture: "🧲", message: "STAR MAGNET!",   seconds: 8 },
+      slow:   { picture: "🐢", message: "SLOW MOTION!",   seconds: 5 },
+      double: { picture: "💎", message: "DOUBLE POINTS!", seconds: 10 }
+    };
+
+    // game rules. Try changing these numbers!
+    const RULES = {
+      maxLives: 5,
+      gatesPerLevel: 10,       // fly through 10 gaps to reach the next level
+      bonusEvery: 3,           // a COIN RUSH at level 3, 6, 9...
+      bonusSeconds: 8,
+      bonusPoints: 2           // each golden star in a coin rush
+    };
+
+    // DIFFICULTY. Each one changes these numbers.
+    const DIFFICULTIES = {
+      easy: {
+        label: "EASY",
+        lives: 3,               // crashes you can take
+        gap: 215,               // how tall the gaps are at level 1...
+        smallestGap: 165,       // ...and the smallest they ever get
+        speed: 140,             // how fast the walls come (pixels per second)
+        speedUpPerLevel: 0.07,  // 7% faster each level
+        gravity: 950,           // how hard the rocket falls
+        hop: 330,               // how hard one tap pushes it up
+        spacing: 270,           // distance between walls
+        powerUpChance: 0.18,    // chance of a power-up in a gap
+        starChance: 0.6         // chance of a star in a gap
+      },
+      medium: {
+        label: "MEDIUM",
+        lives: 2,
+        gap: 180,
+        smallestGap: 140,
+        speed: 165,
+        speedUpPerLevel: 0.08,
+        gravity: 1100,
+        hop: 355,
+        spacing: 250,
+        powerUpChance: 0.13,
+        starChance: 0.5
+      },
+      hard: {
+        label: "HARD",
+        lives: 1,
+        gap: 155,
+        smallestGap: 125,
+        speed: 195,
+        speedUpPerLevel: 0.1,
+        gravity: 1250,
+        hop: 385,
+        spacing: 235,
+        powerUpChance: 0.09,
+        starChance: 0.45
+      }
+    };
+    const DIFFICULTY_ORDER = ["easy", "medium", "hard"];
+    let difficulty = "medium";
+    try {
+      const savedDifficulty = localStorage.getItem("rocketHopDifficulty");
+      if (DIFFICULTIES[savedDifficulty]) difficulty = savedDifficulty;
+    } catch (e) {}
+
+    function settings() { return DIFFICULTIES[difficulty]; }
+
+    function setDifficulty(name) {
+      if (!DIFFICULTIES[name] || name === difficulty) return;
+      difficulty = name;
+      justAdded = [];
+      newBest = false;
+      onlineNote = "";
+      best = board().length ? board()[0].score : 0;
+      try { localStorage.setItem("rocketHopDifficulty", difficulty); } catch (e) {}
+      sounds.coin();
+      loadOnlineScores(name);
+    }
+
+    function stepDifficulty(direction) {
+      const i = DIFFICULTY_ORDER.indexOf(difficulty) + direction;
+      if (i >= 0 && i < DIFFICULTY_ORDER.length) setDifficulty(DIFFICULTY_ORDER[i]);
+    }
+
+    let walls = [];            // the asteroid walls, each with a gap to fly through
+    let items = [];            // stars and power-ups floating in space
+    let sparkles = [];         // little bits that fly out (catches, crashes, flames)
+    let popups = [];           // words that float up, like "+2" or "SHIELD!"
+    let level = 1;
+    let gatesPassed = 0;       // gaps flown through. Every 10 is a new level.
+    let gameState = "start";   // "start", "playing", "paused" or "gameover"
+    let nextWallIn = 0;        // distance until the next wall
+    let lastGapY = 280;
+    let slowTime = 0;          // the turtle slows the whole world
+    let bonusTime = 0;         // seconds of COIN RUSH left
+    let bonusWave = 0;
+    let bonusTimer = 0;
+    let shakeTime = 0;
+    let bannerText = "";
+    let bannerTimer = 0;
+    let clock = 0;             // seconds since the page opened
+    let gameOverAt = -99;      // so a quick tap after crashing doesn't restart straight away
+    let groundOffset = 0;      // makes the moon's surface scroll
+
+    // twinkly stars in the background (they're just decoration)
+    const backgroundStars = [];
+    for (let i = 0; i < 70; i++) {
+      backgroundStars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * GROUND,
+        size: Math.random() < 0.2 ? 2 : 1,
+        speed: 0.1 + Math.random() * 0.35      // far stars move slower than near ones
+      });
+    }
+
+    // ---------------------------------------------------------------
+    // TOP 3 SCORES with names: one list per difficulty on this device,
+    // plus the shared online scoreboard everyone sees
+    // ---------------------------------------------------------------
+    let scores = { easy: [], medium: [], hard: [] };
+    let names = ["", ""];
+    let justAdded = [];            // scores added at the end of the last game (shown in gold)
+    let newBest = false;
+
+    function cleanList(list) {
+      if (!Array.isArray(list)) return [];
+      return list.filter(function (e) { return e && typeof e.score === "number"; }).slice(0, 3);
+    }
+
+    try {
+      const saved = JSON.parse(localStorage.getItem("rocketHopScores") || "{}");
+      for (const name of DIFFICULTY_ORDER) scores[name] = cleanList(saved[name]);
+      // names are shared by all the arcade games (Star Catcher's are used if there are none yet)
+      const savedNames = JSON.parse(localStorage.getItem("arcadeNames") || localStorage.getItem("starCatcherNames") || "[]");
+      if (Array.isArray(savedNames)) names = [savedNames[0] || "", savedNames[1] || ""];
+    } catch (e) {}
+
+    function saveLeaderboard() {
+      try {
+        localStorage.setItem("rocketHopScores", JSON.stringify(scores));
+        localStorage.setItem("arcadeNames", JSON.stringify(names));
+      } catch (e) {}
+    }
+
+    // the shared online scoreboard (a free Google Firebase database)
+    const FIREBASE_PROJECT = "star-catcher-891e9";
+    const DATABASE = "projects/" + FIREBASE_PROJECT + "/databases/(default)/documents";
+    const DATABASE_URL = "https://firestore.googleapis.com/v1/" + DATABASE;
+    const MAX_ONLINE_SCORE = 5000;
+
+    let onlineScores = { easy: null, medium: null, hard: null };   // null = not loaded
+    let lastOnlineCheck = -999;
+    let lastAllCheck = -999;
+    let checkingScores = false;
+    let onlineNote = "";
+
+    async function loadOnlineScores(name) {
+      try {
+        const response = await fetch(DATABASE_URL + "/arcade/" + GAME_ID + ":runQuery", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ structuredQuery: {
+            from: [{ collectionId: name }],
+            orderBy: [{ field: { fieldPath: "score" }, direction: "DESCENDING" }],
+            limit: 6
+          } })
+        });
+        if (!response.ok) throw new Error("status " + response.status);
+        const rows = await response.json();
+        onlineScores[name] = rows
+          .filter(function (row) { return row.document && row.document.fields; })
+          .map(function (row) {
+            const fields = row.document.fields;
+            return { name: fields.name ? fields.name.stringValue : "", score: Number(fields.score ? fields.score.integerValue : 0) };
+          })
+          .filter(function (entry) { return entry.name && isKidFriendly(entry.name); })
+          .slice(0, 3);
+      } catch (error) {
+        onlineScores[name] = null;
+      }
+      if (name === difficulty) best = board().length ? board()[0].score : 0;
+    }
+
+    async function sendOnlineScore(name, playerName, score) {
+      if (score > MAX_ONLINE_SCORE) return false;
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      try {
+        const response = await fetch(DATABASE_URL + ":commit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ writes: [{
+            update: {
+              name: DATABASE + "/arcade/" + GAME_ID + "/" + name + "/" + id,
+              fields: { name: { stringValue: playerName }, score: { integerValue: String(score) } }
+            },
+            updateTransforms: [{ fieldPath: "createdAt", setToServerValue: "REQUEST_TIME" }],
+            currentDocument: { exists: false }
+          }] })
+        });
+        return response.ok;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function isOnline() { return onlineScores[difficulty] !== null; }
+    function board() { return isOnline() ? onlineScores[difficulty] : scores[difficulty]; }
+    let best = board().length ? board()[0].score : 0;
+
+    function madeTopThree(score) {
+      const list = board();
+      return score > 0 && (list.length < 3 || score > list[list.length - 1].score);
+    }
+
+    function insertScore(list, entry) {
+      const longer = list.concat([entry]);
+      longer.sort(function (a, b) { return b.score - a.score; });
+      return longer.slice(0, 3);
+    }
+
+    function addScore(name, score) {
+      const entry = { name: name, score: score };
+      const level = difficulty;
+      scores[level] = insertScore(scores[level], entry);
+      saveLeaderboard();
+      if (onlineScores[level]) {
+        onlineScores[level] = insertScore(onlineScores[level], entry);
+        sendOnlineScore(level, name, score).then(function (saved) {
+          if (!saved) onlineNote = "Couldn't save that score online.";
+          loadOnlineScores(level);
+        });
+      }
+      justAdded.push(entry);
+      if (board().indexOf(entry) === 0) newBest = true;
+      best = board()[0].score;
+    }
+
+    function isJustAdded(entry) {
+      return justAdded.some(function (j) { return j.name === entry.name && j.score === entry.score; });
+    }
+
+    // ---------------------------------------------------------------
+    // KID-FRIENDLY NAMES (the same check as Star Catcher)
+    // ---------------------------------------------------------------
+    const BLOCKED_PARTS = ["fuck", "fuk", "shit", "bitch", "cunt", "dick", "cock", "pussy", "porn", "sex",
+      "nazi", "hitler", "penis", "vagina", "boob", "slut", "whore", "bastard", "nigg", "fag", "retard",
+      "piss", "wank", "twat", "horny", "nude", "naked", "kkk"];
+    const BLOCKED_WORDS = ["ass", "arse", "asshole", "rape", "hell", "damn", "crap", "suck", "sucks",
+      "stupid", "idiot", "dumb", "loser", "hate", "ugly", "fat", "weirdo"];
+    const ALLOWED_PARTS = ["peacock", "cockatoo", "cockatiel", "cockroach", "hancock", "hitchcock",
+      "shuttlecock", "dickens", "essex", "sussex", "middlesex"];
+
+    function isKidFriendly(name) {
+      const lookAlikes = { "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "@": "a", "$": "s", "!": "i" };
+      const spaced = name.replace(/([a-z])([A-Z])/g, "$1 $2")
+        .toLowerCase()
+        .replace(/[0134578@$!]/g, function (c) { return lookAlikes[c]; });
+      let letters = spaced.replace(/[^a-z]/g, "");
+      for (const ok of ALLOWED_PARTS) letters = letters.split(ok).join("");
+      const squashed = letters.replace(/(.)\1+/g, "$1");
+      for (const part of BLOCKED_PARTS) {
+        if (letters.includes(part) || squashed.includes(part)) return false;
+      }
+      for (const word of spaced.split(/[^a-z]+/)) {
+        if (BLOCKED_WORDS.includes(word) || BLOCKED_WORDS.includes(word.replace(/(.)\1+/g, "$1"))) return false;
+      }
+      return true;
+    }
+
+    // ---------------------------------------------------------------
+    // PLAYER NAMES: asked before your first game, then remembered
+    // ---------------------------------------------------------------
+    let nameFormOpen = false;
+    let nameFormPlayers = 1;
+    let startAfterNames = false;
+
+    function nameBox(n) { return document.getElementById("name-input-" + n); }
+
+    function openNameForm(count, thenStart) {
+      nameFormOpen = true;
+      nameFormPlayers = count;
+      startAfterNames = thenStart;
+      const two = count === 2;
+      document.getElementById("name-label-1").classList.toggle("hidden", !two);
+      document.getElementById("name-label-2").classList.toggle("hidden", !two);
+      nameBox(2).classList.toggle("hidden", !two);
+      nameBox(1).value = names[0];
+      nameBox(2).value = names[1];
+      document.getElementById("name-go").textContent = thenStart ? "Play ▶" : "Save";
+      document.getElementById("name-error").classList.add("hidden");
+      document.getElementById("name-form").classList.remove("hidden");
+      nameBox(1).focus();
+      nameBox(1).select();
+    }
+
+    function closeNameForm() {
+      nameFormOpen = false;
+      document.getElementById("name-form").classList.add("hidden");
+    }
+
+    function showNameError(message, n) {
+      const error = document.getElementById("name-error");
+      error.textContent = message;
+      error.classList.remove("hidden");
+      nameBox(n).focus();
+      nameBox(n).select();
+    }
+
+    document.getElementById("name-form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      const typed = [1, 2].map(function (n) { return nameBox(n).value.replace(/\s+/g, " ").trim().slice(0, 12); });
+      for (let i = 0; i < nameFormPlayers; i++) {
+        if (!typed[i]) {
+          return showNameError(nameFormPlayers === 2 ? "Player " + (i + 1) + " needs a name first." : "Type your name first.", i + 1);
+        }
+        if (!isKidFriendly(typed[i])) return showNameError("That name isn't kid-friendly. Try another one! 🙂", i + 1);
+      }
+      names[0] = typed[0];
+      if (nameFormPlayers === 2) names[1] = typed[1];
+      saveLeaderboard();
+      closeNameForm();
+      if (startAfterNames) startGame(nameFormPlayers);
+    });
+    document.getElementById("name-cancel").addEventListener("click", closeNameForm);
+    for (const n of [1, 2]) {
+      nameBox(n).addEventListener("keydown", function (event) {
+        if (event.key === "Escape") closeNameForm();
+      });
+    }
+
+    function tryStart(count) {
+      if (clock - gameOverAt < 0.8) return;          // you were probably still tapping to fly
+      if (!names[0] || (count === 2 && !names[1])) openNameForm(count, true);
+      else startGame(count);
+    }
+
+    function displayName(p) {
+      return names[players.indexOf(p)] || p.name;
+    }
+
+    // only the players who are in this game
+    function activePlayers() {
+      return players.slice(0, playerCount);
+    }
+
+    function startGame(count) {
+      playerCount = count;
+      const d = settings();
+      walls = [];
+      items = [];
+      sparkles = [];
+      popups = [];
+      level = 1;
+      gatesPassed = 0;
+      nextWallIn = 120;
+      lastGapY = 280;
+      slowTime = 0;
+      bonusTime = 0;
+      shakeTime = 0;
+      bannerTimer = 0;
+      newBest = false;
+      for (const p of players) {
+        p.y = 280;
+        p.vy = 0;
+        p.score = 0;
+        p.lives = d.lives;
+        p.alive = false;
+        p.invincible = 1.5;          // a moment to get ready
+        p.shieldTime = 0;
+        p.miniTime = 0;
+        p.magnetTime = 0;
+        p.doubleTime = 0;
+        p.flameTime = 0;
+      }
+      for (const p of activePlayers()) p.alive = true;
+      players[0].x = playerCount === 2 ? 160 : 150;
+      players[1].x = 100;
+      players[1].y = 330;
+      gameState = "playing";
+      hop(players[0]);
+      if (playerCount === 2) hop(players[1]);
+    }
+
+    function endGame() {
+      gameState = "gameover";
+      gameOverAt = clock;
+      sounds.gameOver();
+      newBest = false;
+      justAdded = [];
+      onlineNote = "";
+      const finished = activePlayers().slice().sort(function (a, b) { return b.score - a.score; });
+      checkingScores = true;
+      loadOnlineScores(difficulty).then(function () {
+        checkingScores = false;
+        lastOnlineCheck = clock;
+        if (gameState !== "gameover") return;
+        if (!isOnline()) onlineNote = "Couldn't reach the online scoreboard.";
+        for (const p of finished) {
+          if (madeTopThree(p.score)) addScore(displayName(p), p.score);
+        }
+        if (justAdded.length > 0) sounds.levelUp();
+      });
+    }
+
+    // ---------------------------------------------------------------
+    // SOUND. The browser makes the beeps itself.
+    // ---------------------------------------------------------------
+    let audio = null;
+    let soundOn = true;
+
+    function startAudio() {
+      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === "suspended") audio.resume();
+    }
+
+    function beep(pitch, length, shape, delay) {
+      if (!audio || !soundOn) return;
+      const start = audio.currentTime + (delay || 0);
+      const tone = audio.createOscillator();
+      const volume = audio.createGain();
+      tone.type = shape || "square";
+      tone.frequency.setValueAtTime(pitch, start);
+      volume.gain.setValueAtTime(0.1, start);
+      volume.gain.exponentialRampToValueAtTime(0.001, start + length);
+      tone.connect(volume);
+      volume.connect(audio.destination);
+      tone.start(start);
+      tone.stop(start + length);
+    }
+
+    const sounds = {
+      hop:      function () { beep(300, 0.06, "triangle"); beep(480, 0.06, "triangle", 0.03); },
+      coin:     function () { beep(880, 0.06); beep(1320, 0.09, "square", 0.05); },
+      gate:     function () { beep(660, 0.05, "triangle"); },
+      crash:    function () { beep(90, 0.5, "sawtooth"); beep(55, 0.7, "square", 0.05); },
+      shield:   function () { beep(600, 0.12, "triangle"); beep(900, 0.12, "triangle", 0.06); },
+      powerUp:  function () { beep(523, 0.08, "triangle"); beep(659, 0.08, "triangle", 0.06); beep(784, 0.08, "triangle", 0.12); beep(1047, 0.2, "triangle", 0.18); },
+      levelUp:  function () { beep(523, 0.12, "triangle"); beep(659, 0.12, "triangle", 0.1); beep(784, 0.25, "triangle", 0.2); },
+      gameOver: function () { beep(392, 0.25, "triangle"); beep(330, 0.25, "triangle", 0.25); beep(262, 0.6, "triangle", 0.5); },
+      bonus:    function () {
+        [523, 659, 784, 1047, 784, 1047].forEach(function (pitch, i) { beep(pitch, 0.12, "square", i * 0.09); });
+      }
+    };
+
+    // ---------------------------------------------------------------
+    // 3. INPUT
+    // ---------------------------------------------------------------
+    // make a rocket hop upward
+    function hop(p) {
+      if (gameState !== "playing" || !p.alive) return;
+      p.vy = -settings().hop;
+      p.flameTime = 0.15;
+      for (let i = 0; i < 6; i++) {
+        sparkles.push({
+          x: p.x - 14, y: p.y + 4,
+          moveX: -80 - Math.random() * 120, moveY: (Math.random() - 0.3) * 120,
+          life: 0.35, color: Math.random() < 0.5 ? "#ffd75e" : "#ff9f43"
+        });
+      }
+      sounds.hop();
+    }
+
+    const P1_KEYS = [" ", "w", "W"];
+    const P2_KEYS = ["ArrowUp", "Enter"];
+
+    document.addEventListener("keydown", function (event) {
+      if (nameFormOpen || checkingScores || event.target.tagName === "INPUT") return;
+      if (event.key.startsWith("Arrow") || event.key === " ") event.preventDefault();
+      startAudio();
+
+      if (gameState === "start" || gameState === "gameover") {
+        if (event.repeat) return;
+        if (event.key === "1") tryStart(1);
+        if (event.key === "2") tryStart(2);
+        if (event.key === " " || event.key === "Enter") tryStart(playerCount);
+        if (event.key === "ArrowLeft") stepDifficulty(-1);
+        if (event.key === "ArrowRight") stepDifficulty(1);
+        if (event.key.toLowerCase() === "n") {
+          event.preventDefault();
+          openNameForm(playerCount, false);
+        }
+      } else if (gameState === "playing" && !event.repeat) {
+        if (playerCount === 1) {
+          if (P1_KEYS.includes(event.key) || P2_KEYS.includes(event.key)) hop(players[0]);
+        } else {
+          if (P1_KEYS.includes(event.key)) hop(players[0]);
+          if (P2_KEYS.includes(event.key)) hop(players[1]);
+        }
+      }
+
+      const letter = event.key.toLowerCase();
+      if (letter === "p") {
+        if (gameState === "playing") gameState = "paused";
+        else if (gameState === "paused") gameState = "playing";
+      }
+      if (letter === "m") soundOn = !soundOn;
+    });
+
+    // TOUCH and MOUSE
+    const touchScreen = window.matchMedia("(pointer: coarse)").matches;
+
+    function gameSpot(event) {
+      const box = canvas.getBoundingClientRect();
+      return {
+        x: (event.clientX - box.left) * canvas.width / box.width,
+        y: (event.clientY - box.top) * canvas.height / box.height
+      };
+    }
+
+    const buttons = [
+      { label: "1 PLAYER",  players: 1, x: 50,  y: 425, width: 180, height: 56 },
+      { label: "2 PLAYERS", players: 2, x: 250, y: 425, width: 180, height: 56 }
+    ];
+    const difficultyButtons = [
+      { name: "easy",   x: 48,  y: 222, width: 120, height: 38 },
+      { name: "medium", x: 180, y: 222, width: 120, height: 38 },
+      { name: "hard",   x: 312, y: 222, width: 120, height: 38 }
+    ];
+    const changeNameButton = { x: 160, y: 528, width: 160, height: 34 };
+
+    function inside(spot, box) {
+      return spot.x > box.x && spot.x < box.x + box.width &&
+             spot.y > box.y && spot.y < box.y + box.height;
+    }
+
+    canvas.addEventListener("pointerdown", function (event) {
+      startAudio();
+      if (nameFormOpen || checkingScores) return;
+      const spot = gameSpot(event);
+
+      if (gameState === "start" || gameState === "gameover") {
+        for (const b of difficultyButtons) {
+          if (inside(spot, b)) setDifficulty(b.name);
+        }
+        for (const b of buttons) {
+          if (inside(spot, b)) tryStart(b.players);
+        }
+        if (inside(spot, changeNameButton)) openNameForm(playerCount, false);
+        return;
+      }
+      if (gameState === "paused") {
+        gameState = "playing";
+        return;
+      }
+      // tap to hop. With 2 players: left half is Player 1, right half is Player 2
+      if (playerCount === 1 || spot.x < canvas.width / 2) hop(players[0]);
+      else hop(players[1]);
+    });
+
+    function refreshScoresSoon() {
+      lastOnlineCheck = -999;
+      lastAllCheck = -999;
+    }
+
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden && gameState === "playing") gameState = "paused";
+      if (!document.hidden) refreshScoresSoon();
+    });
+    window.addEventListener("focus", refreshScoresSoon);
+
+    // ---------------------------------------------------------------
+    // Helper functions
+    // ---------------------------------------------------------------
+    // how fast the walls move right now
+    function worldSpeed() {
+      if (gameState !== "playing") return 60;           // a gentle drift on the menus
+      const d = settings();
+      const speed = d.speed * (1 + (level - 1) * d.speedUpPerLevel);
+      return slowTime > 0 ? speed * 0.5 : speed;
+    }
+
+    function currentGap() {
+      const d = settings();
+      return Math.max(d.smallestGap, d.gap - (level - 1) * 6);
+    }
+
+    // a new asteroid wall, with a star or power-up in its gap sometimes
+    function spawnWall() {
+      const d = settings();
+      const gap = currentGap();
+      const lowest = 90 + gap / 2;
+      const highest = GROUND - 50 - gap / 2;
+      let gapY = lowest + Math.random() * (highest - lowest);
+      gapY = Math.max(lastGapY - 170, Math.min(lastGapY + 170, gapY));   // never an impossible jump
+      lastGapY = gapY;
+      const wall = { x: canvas.width + 10, width: 66, gapY: gapY, gap: gap, passedBy: [false, false], counted: false };
+      walls.push(wall);
+
+      const roll = Math.random();
+      const middle = wall.x + wall.width / 2;
+      if (roll < d.powerUpChance) {
+        const power = pickPowerUp();
+        items.push({ kind: "power", power: power, picture: POWER_UPS[power].picture, x: middle, y: gapY, r: 17 });
+      } else if (roll < d.powerUpChance + d.starChance) {
+        items.push({ kind: "star", picture: "⭐", x: middle, y: gapY + (Math.random() - 0.5) * gap * 0.4, r: 14 });
+      }
+    }
+
+    function pickPowerUp() {
+      let choices = Object.keys(POWER_UPS);
+      const roomForLife = activePlayers().some(function (p) { return p.alive && p.lives < RULES.maxLives; });
+      if (!roomForLife) choices = choices.filter(function (name) { return name !== "life"; });
+      return choices[Math.floor(Math.random() * choices.length)];
+    }
+
+    // COLLISION: does a circle (the rocket) touch a box (a piece of wall)?
+    function circleTouchesBox(cx, cy, r, x, y, w, h) {
+      const closestX = Math.max(x, Math.min(cx, x + w));
+      const closestY = Math.max(y, Math.min(cy, y + h));
+      const dx = cx - closestX;
+      const dy = cy - closestY;
+      return dx * dx + dy * dy < r * r;
+    }
+
+    function burst(x, y, colors, power, count) {
+      colors = colors || ["#ffd75e", "white"];
+      power = power || 300;
+      for (let i = 0; i < (count || 30); i++) {
+        sparkles.push({
+          x: x, y: y,
+          moveX: (Math.random() - 0.5) * power,
+          moveY: (Math.random() - 0.5) * power,
+          life: 0.6,
+          color: colors[Math.floor(Math.random() * colors.length)]
+        });
+      }
+    }
+
+    function popup(text, x, y, color) {
+      popups.push({ text: text, x: Math.max(90, Math.min(canvas.width - 90, x)), y: y, color: color, life: 1 });
+    }
+
+    function banner(text) {
+      bannerText = text;
+      bannerTimer = 1.5;
+    }
+
+    function points(p, amount) {
+      return p.doubleTime > 0 ? amount * 2 : amount;
+    }
+
+    function collect(item, p) {
+      item.gone = true;
+      if (item.kind === "power") {
+        usePowerUp(item.power, p);
+        burst(item.x, item.y, ["#7df9ff", "white"]);
+        popup(POWER_UPS[item.power].message, item.x, item.y - 24, "#7df9ff");
+        sounds.powerUp();
+        return;
+      }
+      const amount = points(p, item.kind === "bonus" ? RULES.bonusPoints : 1);
+      p.score += amount;
+      burst(item.x, item.y, ["#ffd75e", "white"], 260, 20);
+      popup("+" + amount, item.x, item.y - 20, "#ffd75e");
+      sounds.coin();
+    }
+
+    function usePowerUp(power, p) {
+      const seconds = POWER_UPS[power].seconds;
+      if (power === "life") p.lives = Math.min(RULES.maxLives, p.lives + 1);
+      if (power === "shield") p.shieldTime = seconds;
+      if (power === "mini") p.miniTime = seconds;
+      if (power === "magnet") p.magnetTime = seconds;
+      if (power === "double") p.doubleTime = seconds;
+      if (power === "slow") slowTime = seconds;          // slows down everything
+    }
+
+    // the rocket hit something!
+    function crash(p) {
+      if (p.invincible > 0) return;
+      if (p.shieldTime > 0) {                             // the shield takes the hit
+        p.shieldTime = 0;
+        p.invincible = 1.5;
+        burst(p.x, p.y, ["#7df9ff", "white"], 380);
+        popup("SHIELD SAVED YOU!", p.x + 60, p.y - 30, "#7df9ff");
+        sounds.shield();
+        return;
+      }
+      p.lives -= 1;
+      shakeTime = 0.4;
+      burst(p.x, p.y, ["#ff6b3d", "#ffd75e", "#888"], 520, 50);
+      sounds.crash();
+      if (p.lives > 0) {
+        p.invincible = 2;                                 // blink for 2 seconds, then carry on
+        p.y = 260;
+        p.vy = -150;
+        popup("OUCH!", p.x + 40, p.y - 30, "#ff6b6b");
+      } else {
+        p.alive = false;
+        if (playerCount === 2) popup(displayName(p) + " is out!", 240, 300, "#ff6b6b");
+      }
+    }
+
+    function startBonus() {
+      bonusTime = RULES.bonusSeconds;
+      bonusWave = 0;
+      bonusTimer = 0;
+      banner("COIN RUSH!");
+      sounds.bonus();
+    }
+
+    // ---------------------------------------------------------------
+    // 4. UPDATE
+    // ---------------------------------------------------------------
+    function update(dt) {
+      clock += dt;
+
+      // the background drifts all the time, even on the menus
+      const speed = worldSpeed();
+      for (const s of backgroundStars) {
+        s.x -= speed * s.speed * dt;
+        if (s.x < 0) {
+          s.x += canvas.width;
+          s.y = Math.random() * GROUND;
+        }
+      }
+      groundOffset = (groundOffset + speed * dt) % 80;
+
+      for (const s of sparkles) {
+        s.x += s.moveX * dt;
+        s.y += s.moveY * dt;
+        s.moveY += 300 * dt;
+        s.life -= dt;
+      }
+      sparkles = sparkles.filter(function (s) { return s.life > 0; });
+      for (const word of popups) {
+        word.y -= 40 * dt;
+        word.life -= dt;
+      }
+      popups = popups.filter(function (word) { return word.life > 0; });
+      if (shakeTime > 0) shakeTime -= dt;
+      if (bannerTimer > 0) bannerTimer -= dt;
+
+      // keep the scoreboard up to date
+      const onMenu = gameState === "start" || gameState === "gameover";
+      if (!document.hidden && !checkingScores) {
+        if (clock - lastOnlineCheck > (onMenu ? 10 : 30)) {
+          lastOnlineCheck = clock;
+          loadOnlineScores(difficulty);
+        }
+        if (onMenu && clock - lastAllCheck > 30) {
+          lastAllCheck = clock;
+          for (const name of DIFFICULTY_ORDER) {
+            if (name !== difficulty) loadOnlineScores(name);
+          }
+        }
+      }
+
+      if (gameState !== "playing") return;
+
+      const d = settings();
+      slowTime = Math.max(0, slowTime - dt);
+
+      // COIN RUSH: no walls, just a wave of golden stars
+      if (bonusTime > 0) {
+        bonusTime -= dt;
+        bonusTimer -= dt;
+        if (bonusTimer <= 0) {
+          bonusTimer = 0.16;
+          bonusWave += 0.45;
+          items.push({ kind: "bonus", picture: "🌟", x: canvas.width + 20, y: 290 + Math.sin(bonusWave) * 170, r: 15 });
+        }
+        if (bonusTime <= 0) {
+          bonusTime = 0;
+          banner("RUSH OVER!");
+          nextWallIn = 200;
+        }
+      } else {
+        nextWallIn -= speed * dt;
+        if (nextWallIn <= 0) {
+          spawnWall();
+          nextWallIn = d.spacing;
+        }
+      }
+
+      // move walls and items to the left
+      for (const wall of walls) wall.x -= speed * dt;
+      walls = walls.filter(function (wall) { return wall.x + wall.width > -20; });
+      for (const item of items) item.x -= speed * dt;
+
+      for (const p of activePlayers()) {
+        if (!p.alive) continue;
+
+        // power-up timers
+        p.invincible = Math.max(0, p.invincible - dt);
+        p.shieldTime = Math.max(0, p.shieldTime - dt);
+        p.miniTime = Math.max(0, p.miniTime - dt);
+        p.magnetTime = Math.max(0, p.magnetTime - dt);
+        p.doubleTime = Math.max(0, p.doubleTime - dt);
+        p.flameTime = Math.max(0, p.flameTime - dt);
+        p.r = p.miniTime > 0 ? 8 : 13;
+
+        // GRAVITY pulls the rocket down; a hop pushes it up
+        p.vy = Math.min(600, p.vy + d.gravity * dt);
+        p.y += p.vy * dt;
+        if (p.y < p.r) {                 // bump your head on the top: no crash
+          p.y = p.r;
+          p.vy = 0;
+        }
+
+        // hit the ground?
+        if (p.y + p.r > GROUND) {
+          if (p.invincible > 0) {
+            p.y = GROUND - p.r;
+            p.vy = -d.hop;               // bounce
+          } else {
+            crash(p);
+            if (p.alive && p.y + p.r > GROUND) p.y = 260;
+          }
+        }
+
+        // hit a wall?
+        for (const wall of walls) {
+          if (!p.alive) break;
+          const topHeight = wall.gapY - wall.gap / 2;
+          const bottomY = wall.gapY + wall.gap / 2;
+          if (circleTouchesBox(p.x, p.y, p.r, wall.x, 0, wall.width, topHeight) ||
+              circleTouchesBox(p.x, p.y, p.r, wall.x, bottomY, wall.width, GROUND - bottomY)) {
+            crash(p);
+          }
+        }
+        if (!p.alive) continue;
+
+        // flew through a gap? +1
+        const slot = players.indexOf(p);
+        for (const wall of walls) {
+          if (!wall.passedBy[slot] && wall.x + wall.width < p.x - p.r) {
+            wall.passedBy[slot] = true;
+            p.score += points(p, 1);
+            sounds.gate();
+            if (!wall.counted) {
+              wall.counted = true;
+              gatesPassed += 1;
+            }
+          }
+        }
+
+        // pick things up (the magnet pulls stars and power-ups closer)
+        for (const item of items) {
+          if (item.gone) continue;
+          if (p.magnetTime > 0) {
+            const dx = p.x - item.x;
+            const dy = p.y - item.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < 230 && distance > 1) {
+              item.x += dx / distance * 320 * dt;
+              item.y += dy / distance * 320 * dt;
+            }
+          }
+          const dx = p.x - item.x;
+          const dy = p.y - item.y;
+          if (dx * dx + dy * dy < (p.r + item.r) * (p.r + item.r)) collect(item, p);
+        }
+      }
+      items = items.filter(function (item) { return !item.gone && item.x > -40; });
+
+      // LEVELS: every 10 gaps is a new level, and every 3rd level starts a COIN RUSH
+      const newLevel = 1 + Math.floor(gatesPassed / RULES.gatesPerLevel);
+      if (newLevel > level) {
+        level = newLevel;
+        if (level % RULES.bonusEvery === 0) {
+          startBonus();
+        } else {
+          banner("LEVEL " + level + "!");
+          sounds.levelUp();
+        }
+      }
+
+      // everyone out of lives?
+      if (!activePlayers().some(function (p) { return p.alive; })) endGame();
+    }
+
+    // ---------------------------------------------------------------
+    // 5. DRAW
+    // ---------------------------------------------------------------
+    function drawBackground() {
+      pen.fillStyle = "#0d1030";
+      pen.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (const s of backgroundStars) {
+        pen.globalAlpha = 0.35 + s.speed;
+        pen.fillStyle = "white";
+        pen.fillRect(s.x, s.y, s.size, s.size);
+      }
+      pen.globalAlpha = 1;
+
+      // a far-away planet
+      pen.fillStyle = "#2b2f63";
+      pen.beginPath();
+      pen.arc(395, 150, 46, 0, Math.PI * 2);
+      pen.fill();
+      pen.strokeStyle = "rgba(255, 215, 94, 0.5)";
+      pen.lineWidth = 4;
+      pen.beginPath();
+      pen.ellipse(395, 150, 74, 14, -0.3, 0, Math.PI * 2);
+      pen.stroke();
+
+      // golden glow in a coin rush
+      if (bonusTime > 0) {
+        pen.fillStyle = "rgba(255, 200, 60, " + (0.1 + 0.05 * Math.sin(clock * 6)) + ")";
+        pen.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    function drawGround() {
+      pen.fillStyle = "#3a3f6b";
+      pen.fillRect(0, GROUND, canvas.width, canvas.height - GROUND);
+      pen.fillStyle = "white";
+      pen.fillRect(0, GROUND, canvas.width, 3);
+      pen.fillStyle = "#2b2f55";
+      for (let x = -groundOffset; x < canvas.width + 80; x += 80) {     // craters scroll by
+        pen.beginPath();
+        pen.ellipse(x + 30, GROUND + 18, 16, 5, 0, 0, Math.PI * 2);
+        pen.fill();
+      }
+    }
+
+    function drawWall(wall) {
+      const topHeight = wall.gapY - wall.gap / 2;
+      const bottomY = wall.gapY + wall.gap / 2;
+      pen.fillStyle = "#6a5acd";
+      pen.strokeStyle = "white";
+      pen.lineWidth = 3;
+      pen.fillRect(wall.x, 0, wall.width, topHeight);
+      pen.strokeRect(wall.x, -5, wall.width, topHeight + 5);
+      pen.fillRect(wall.x, bottomY, wall.width, GROUND - bottomY);
+      pen.strokeRect(wall.x, bottomY, wall.width, GROUND - bottomY + 5);
+      // rocky lips at the edges of the gap
+      pen.fillStyle = "#8b7be8";
+      pen.fillRect(wall.x - 5, topHeight - 18, wall.width + 10, 18);
+      pen.strokeRect(wall.x - 5, topHeight - 18, wall.width + 10, 18);
+      pen.fillRect(wall.x - 5, bottomY, wall.width + 10, 18);
+      pen.strokeRect(wall.x - 5, bottomY, wall.width + 10, 18);
+      // craters
+      pen.fillStyle = "rgba(0, 0, 0, 0.18)";
+      pen.beginPath();
+      pen.arc(wall.x + 20, topHeight - 50, 7, 0, Math.PI * 2);
+      pen.arc(wall.x + 44, bottomY + 60, 9, 0, Math.PI * 2);
+      pen.fill();
+    }
+
+    function drawItem(item) {
+      if (item.kind === "power") {
+        pen.fillStyle = "rgba(125, 249, 255, " + (0.25 + 0.15 * Math.sin(clock * 8)) + ")";
+        pen.beginPath();
+        pen.arc(item.x, item.y, item.r * 1.15, 0, Math.PI * 2);
+        pen.fill();
+      }
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.font = (item.r * 2) + "px sans-serif";
+      pen.fillText(item.picture, item.x, item.y);
+    }
+
+    // the rocket, drawn with shapes so each player can have their own color
+    function drawRocket(p) {
+      if (p.invincible > 0 && Math.sin(clock * 30) > 0.3) return;   // blink after a crash
+      const scale = p.r / 13;
+      const tilt = Math.max(-0.5, Math.min(0.9, p.vy / 600));       // nose up when rising, down when falling
+      pen.save();
+      pen.translate(p.x, p.y);
+      pen.rotate(tilt);
+      pen.scale(scale, scale);
+
+      if (p.flameTime > 0) {                                          // flame
+        pen.fillStyle = Math.sin(clock * 60) > 0 ? "#ffd75e" : "#ff9f43";
+        pen.beginPath();
+        pen.moveTo(-15, -5);
+        pen.lineTo(-30 - Math.random() * 8, 0);
+        pen.lineTo(-15, 5);
+        pen.fill();
+      }
+      pen.fillStyle = "#e74c3c";                                      // fins
+      pen.beginPath();
+      pen.moveTo(-12, -6); pen.lineTo(-19, -15); pen.lineTo(-3, -7);
+      pen.moveTo(-12, 6); pen.lineTo(-19, 15); pen.lineTo(-3, 7);
+      pen.fill();
+      pen.fillStyle = p.color;                                        // body
+      pen.strokeStyle = "white";
+      pen.lineWidth = 2;
+      pen.beginPath();
+      pen.ellipse(0, 0, 17, 9, 0, 0, Math.PI * 2);
+      pen.fill();
+      pen.stroke();
+      pen.fillStyle = "#e74c3c";                                      // nose
+      pen.beginPath();
+      pen.moveTo(11, -7);
+      pen.quadraticCurveTo(26, 0, 11, 7);
+      pen.fill();
+      pen.fillStyle = "#9be7ff";                                      // window
+      pen.beginPath();
+      pen.arc(1, 0, 4.5, 0, Math.PI * 2);
+      pen.fill();
+      pen.stroke();
+      pen.restore();
+
+      if (p.shieldTime > 0) {                                         // shield bubble
+        pen.strokeStyle = "rgba(125, 249, 255, " + (0.6 + 0.3 * Math.sin(clock * 10)) + ")";
+        pen.lineWidth = 3;
+        pen.beginPath();
+        pen.arc(p.x, p.y, p.r + 12, 0, Math.PI * 2);
+        pen.stroke();
+      }
+      if (playerCount === 2 || p.doubleTime > 0) {                    // label: P1 / P2 / x2
+        let label = playerCount === 2 ? (p === players[0] ? "P1" : "P2") : "";
+        if (p.doubleTime > 0) label += (label ? " " : "") + "x2";
+        pen.fillStyle = p.doubleTime > 0 ? "#ffd75e" : "white";
+        pen.font = "bold 12px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "bottom";
+        pen.fillText(label, p.x, p.y - p.r - 10);
+      }
+    }
+
+    function drawButtons() {
+      for (const b of buttons) {
+        pen.fillStyle = "#ffd75e";
+        pen.fillRect(b.x, b.y, b.width, b.height);
+        pen.fillStyle = "#1d2340";
+        pen.font = "bold 20px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText(b.label, b.x + b.width / 2, b.y + b.height / 2);
+      }
+    }
+
+    function drawDifficultyButtons() {
+      for (const b of difficultyButtons) {
+        const picked = b.name === difficulty;
+        pen.fillStyle = picked ? "#ffd75e" : "rgba(255, 255, 255, 0.08)";
+        pen.fillRect(b.x, b.y, b.width, b.height);
+        pen.strokeStyle = picked ? "#ffd75e" : "#8a8fb0";
+        pen.lineWidth = 2;
+        pen.strokeRect(b.x, b.y, b.width, b.height);
+        pen.fillStyle = picked ? "#1d2340" : "white";
+        pen.font = "bold 17px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText(DIFFICULTIES[b.name].label, b.x + b.width / 2, b.y + b.height / 2 + 1);
+      }
+    }
+
+    function drawLeaderboard(top) {
+      pen.textBaseline = "middle";
+      pen.textAlign = "center";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 17px sans-serif";
+      pen.fillText((isOnline() ? "🌍 WORLD TOP 3 · " : "📱 TOP 3 ON THIS DEVICE · ") + settings().label, canvas.width / 2, top);
+      const medals = ["🥇", "🥈", "🥉"];
+      for (let i = 0; i < 3; i++) {
+        const entry = board()[i];
+        const y = top + 28 + i * 24;
+        const isNew = entry && isJustAdded(entry);
+        pen.font = (isNew ? "bold " : "") + "18px sans-serif";
+        pen.fillStyle = isNew ? "#ffd75e" : (entry ? "white" : "#8a8fb0");
+        pen.textAlign = "left";
+        const shownName = entry ? (isKidFriendly(entry.name) ? entry.name : "★★★") : "-----";
+        pen.fillText(medals[i] + "  " + shownName, 125, y);
+        pen.textAlign = "right";
+        pen.fillText(entry ? String(entry.score) : "", 355, y);
+      }
+    }
+
+    function drawOtherBests(y) {
+      const parts = [];
+      for (const name of DIFFICULTY_ORDER) {
+        if (name === difficulty) continue;
+        const list = onlineScores[name] || scores[name];
+        const top = list[0];
+        parts.push(DIFFICULTIES[name].label + ": " + (top && isKidFriendly(top.name) ? top.name + " " + top.score : "—"));
+      }
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "#aab";
+      pen.font = "13px sans-serif";
+      pen.fillText("#1 on " + parts.join("   ·   "), canvas.width / 2, y);
+    }
+
+    function drawPlayingAs() {
+      if (!names[0]) return;
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "16px sans-serif";
+      const who = playerCount === 2 && names[1] ? names[0] + " & " + names[1] : names[0];
+      pen.fillText("👤 Playing as " + who, canvas.width / 2, 506);
+      const b = changeNameButton;
+      pen.strokeStyle = "#8a8fb0";
+      pen.lineWidth = 2;
+      pen.strokeRect(b.x, b.y, b.width, b.height);
+      pen.fillStyle = "#cfd3ee";
+      pen.font = "bold 15px sans-serif";
+      pen.fillText("✏️ Change name", b.x + b.width / 2, b.y + b.height / 2 + 1);
+    }
+
+    function dimScreen() {
+      pen.fillStyle = "rgba(0, 0, 0, 0.62)";
+      pen.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function drawStartScreen() {
+      dimScreen();
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.font = "14px sans-serif";
+      pen.fillStyle = "#cfd3ee";
+      pen.fillText("❤️ extra life    🛡️ shield    🍄 mini rocket", canvas.width / 2, 72);
+      pen.fillText("🧲 star magnet    🐢 slow motion    💎 double points", canvas.width / 2, 94);
+      pen.fillText("⭐ +1 point    🌟 Coin Rush every 3 levels", canvas.width / 2, 116);
+      pen.fillStyle = "white";
+      pen.font = "bold 44px sans-serif";
+      pen.fillText("ROCKET HOP", canvas.width / 2, 160);
+      pen.font = "18px sans-serif";
+      pen.fillText("Tap to fly! Dodge the rocks, grab the stars.", canvas.width / 2, 198);
+      drawDifficultyButtons();
+      drawLeaderboard(290);
+      drawOtherBests(386);
+      pen.textAlign = "center";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 19px sans-serif";
+      pen.fillText("How many players?", canvas.width / 2, 408);
+      drawButtons();
+      drawPlayingAs();
+    }
+
+    function drawGameOverScreen() {
+      dimScreen();
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "bold 44px sans-serif";
+      pen.fillText("GAME OVER", canvas.width / 2, 128);
+      pen.font = "20px sans-serif";
+      pen.fillText(resultText(), canvas.width / 2, 168);
+      if (justAdded.length > 0) {
+        const who = justAdded.map(function (e) { return e.name; }).join(" & ");
+        pen.fillStyle = "#ffd75e";
+        pen.font = "bold 20px sans-serif";
+        pen.fillText(newBest ? "🏆 NEW HIGH SCORE, " + justAdded[0].name + "!" : "🏆 " + who + " made the top 3!", canvas.width / 2, 196);
+      }
+      drawDifficultyButtons();
+      drawLeaderboard(290);
+      if (onlineNote) {
+        pen.textAlign = "center";
+        pen.fillStyle = "#ff8fc7";
+        pen.font = "13px sans-serif";
+        pen.fillText(onlineNote + " Saved on this device.", canvas.width / 2, 386);
+      } else {
+        drawOtherBests(386);
+      }
+      pen.textAlign = "center";
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 19px sans-serif";
+      if (checkingScores) {
+        pen.fillText("Checking the scoreboard…", canvas.width / 2, 408);
+      } else {
+        pen.fillText("Play again?", canvas.width / 2, 408);
+        drawButtons();
+        drawPlayingAs();
+      }
+    }
+
+    function drawMessage(title, line) {
+      dimScreen();
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.fillStyle = "white";
+      pen.font = "bold 44px sans-serif";
+      pen.fillText(title, canvas.width / 2, canvas.height / 2 - 30);
+      pen.fillStyle = "#ffd75e";
+      pen.font = "bold 19px sans-serif";
+      pen.fillText(line, canvas.width / 2, canvas.height / 2 + 20);
+    }
+
+    function drawScore(p, y) {
+      pen.fillStyle = p.color;
+      pen.fillRect(16, y, 16, 16);
+      pen.strokeStyle = "white";
+      pen.lineWidth = 2;
+      pen.strokeRect(16, y, 16, 16);
+      pen.fillStyle = "white";
+      pen.font = "bold 20px sans-serif";
+      pen.textAlign = "left";
+      pen.textBaseline = "top";
+      let text = displayName(p) + ": " + p.score;
+      if (playerCount === 2) text += p.alive ? "  ❤️" + p.lives : "  💥";
+      pen.fillText(text, 40, y - 2);
+    }
+
+    function drawActivePowerUps() {
+      const active = [];
+      if (slowTime > 0) active.push("🐢" + Math.ceil(slowTime));
+      for (const p of activePlayers()) {
+        if (!p.alive) continue;
+        const who = playerCount === 2 ? (p === players[0] ? "P1" : "P2") : "";
+        if (p.shieldTime > 0) active.push(who + "🛡️" + Math.ceil(p.shieldTime));
+        if (p.miniTime > 0) active.push(who + "🍄" + Math.ceil(p.miniTime));
+        if (p.magnetTime > 0) active.push(who + "🧲" + Math.ceil(p.magnetTime));
+        if (p.doubleTime > 0) active.push(who + "💎" + Math.ceil(p.doubleTime));
+      }
+      if (active.length === 0) return;
+      pen.fillStyle = "#7df9ff";
+      pen.font = "bold 15px sans-serif";
+      pen.textAlign = "center";
+      pen.textBaseline = "top";
+      pen.fillText(active.join("   "), canvas.width / 2 + 40, 44);
+    }
+
+    function draw() {
+      drawBackground();
+
+      // --- the game world (this part shakes) ---
+      pen.save();
+      if (shakeTime > 0) pen.translate((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12);
+
+      if (gameState === "playing" || gameState === "paused") {
+        for (const wall of walls) drawWall(wall);
+        for (const item of items) drawItem(item);
+      }
+      drawGround();
+
+      for (const s of sparkles) {
+        pen.globalAlpha = Math.max(0, s.life / 0.6);
+        pen.fillStyle = s.color;
+        pen.fillRect(s.x - 2, s.y - 2, 4, 4);
+      }
+      pen.globalAlpha = 1;
+
+      if (gameState === "playing" || gameState === "paused") {
+        for (const p of activePlayers()) if (p.alive) drawRocket(p);
+      }
+
+      pen.textAlign = "center";
+      pen.textBaseline = "middle";
+      pen.font = "bold 20px sans-serif";
+      for (const word of popups) {
+        pen.globalAlpha = Math.max(0, word.life);
+        pen.fillStyle = word.color;
+        pen.fillText(word.text, word.x, word.y);
+      }
+      pen.globalAlpha = 1;
+      pen.restore();
+
+      // --- the scoreboard (this part stays still) ---
+      drawScore(players[0], 16);
+      if (playerCount === 2) drawScore(players[1], 44);
+
+      pen.font = "bold 20px sans-serif";
+      pen.textAlign = "center";
+      pen.textBaseline = "top";
+      if (bonusTime > 0) {
+        pen.fillStyle = "#ffd75e";
+        pen.fillText("RUSH " + Math.ceil(bonusTime), canvas.width / 2 + 40, 14);
+      } else {
+        pen.fillStyle = "white";
+        pen.fillText("Level " + level, canvas.width / 2 + 40, 14);
+      }
+      pen.textAlign = "right";
+      if (playerCount === 1) pen.fillText("❤️".repeat(Math.max(0, players[0].lives)), canvas.width - 16, 14);
+      pen.font = "14px sans-serif";
+      pen.fillStyle = "#aab";
+      pen.fillText(settings().label + " · Best " + best, canvas.width - 16, 44);
+
+      drawActivePowerUps();
+
+      // controls reminder
+      pen.font = "14px sans-serif";
+      pen.fillStyle = "#cfd3ee";
+      pen.textAlign = "center";
+      pen.textBaseline = "bottom";
+      let hint;
+      if (gameState === "start" || gameState === "gameover") {
+        hint = touchScreen ? "Tap a button to start" : "← → difficulty    1 / 2: players    N: change name";
+      } else if (touchScreen) {
+        hint = playerCount === 2 ? "Left side: P1 hops    Right side: P2 hops" : "Tap anywhere to hop";
+      } else {
+        hint = (playerCount === 2 ? "P1: Space / W    P2: ↑ / Enter" : "Space, ↑, W or click to hop") +
+          "    P: pause    M: sound " + (soundOn ? "on" : "off");
+      }
+      pen.fillText(hint, canvas.width / 2, canvas.height - 6);
+
+      if (bannerTimer > 0) {
+        pen.globalAlpha = Math.min(1, bannerTimer);
+        pen.fillStyle = "#ffd75e";
+        pen.font = "bold 44px sans-serif";
+        pen.textAlign = "center";
+        pen.textBaseline = "middle";
+        pen.fillText(bannerText, canvas.width / 2, canvas.height / 2 - 60);
+        pen.globalAlpha = 1;
+      }
+
+      if (gameState === "start") drawStartScreen();
+      if (gameState === "paused") drawMessage("PAUSED", touchScreen ? "Tap to keep playing" : "Press P or click to keep playing");
+      if (gameState === "gameover") drawGameOverScreen();
+    }
+
+    function resultText() {
+      if (playerCount === 1) return "You scored " + players[0].score + " points";
+      const p1 = players[0].score;
+      const p2 = players[1].score;
+      if (p1 > p2) return displayName(players[0]) + " wins, " + p1 + " to " + p2 + "!";
+      if (p2 > p1) return displayName(players[1]) + " wins, " + p2 + " to " + p1 + "!";
+      return "It's a tie, " + p1 + " to " + p2 + "!";
+    }
+
+    // ---------------------------------------------------------------
+    // 6. GAME LOOP
+    // ---------------------------------------------------------------
+    let lastTime = performance.now();
+
+    function loop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    // fetch everyone's top scores for all three difficulties
+    for (const name of DIFFICULTY_ORDER) loadOnlineScores(name);
+    lastOnlineCheck = 0;
+    lastAllCheck = 0;
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
